@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../store/useAuth';
-import api, { 
-  guild as guildApi, 
+import api, {
+  guild as guildApi,
   channel as channelApi,
+  user as userApi,
   getIceServers
 } from '../../lib/api';
 import { 
@@ -221,13 +222,20 @@ export default function DashboardPage() {
       const transformedChannels = transformChannels(channelsResponse.data);
       setChannels(transformedChannels);
       
-      // Преобразование участников с нормализацией ID
-      const transformedMembers = membersResponse.data.map(member => ({
-        id: normalizeUUID(member.id),
-        username: member.username || "",
-        email: member.email || ""
-      }));
-      
+      // Преобразование участников с нормализацией ID и загрузкой ника
+      const transformedMembers = await Promise.all(
+        membersResponse.data.map(async (member: any) => {
+          const id = normalizeUUID(member.id);
+          try {
+            const res = await userApi.getById(id);
+            return { id, username: res.data.username || '', email: res.data.email || '' } as User;
+          } catch (err) {
+            console.warn('Failed to fetch user info', id, err);
+            return { id, username: '', email: '' } as User;
+          }
+        })
+      );
+
       setMembers(transformedMembers);
       
       if (transformedChannels.length > 0) {
@@ -338,6 +346,9 @@ export default function DashboardPage() {
       // Запускаем обнаружение речи
       startSpeakingDetection(stream);
       
+      // Уведомляем о подключении после получения медиа
+      voiceGateway.send({ type: 'join' });
+
       // Создаем пиринговые соединения с другими участниками
       voiceUsers.forEach(user => {
         const userId = normalizeUUID(user.id);
@@ -374,13 +385,9 @@ export default function DashboardPage() {
     pc.onicecandidate = (event) => {
       if (event.candidate && voiceGateway) {
         voiceGateway.send({
-          type: 'signal',
-          data: {
-            type: 'candidate',
-            candidate: event.candidate,
-            target: userId
-          },
-          id: undefined
+          type: 'candidate',
+          target: userId,
+          payload: { candidate: event.candidate }
         });
       }
     };
@@ -411,13 +418,9 @@ export default function DashboardPage() {
       .then(() => {
         if (voiceGateway && pc.localDescription) {
           voiceGateway.send({
-            type: 'signal',
-            data: {
-              type: 'offer',
-              offer: pc.localDescription,
-              target: userId
-            },
-            id: undefined
+            type: 'offer',
+            target: userId,
+            payload: { offer: pc.localDescription }
           });
         }
       })
@@ -451,13 +454,9 @@ export default function DashboardPage() {
           .then(() => {
             if (voiceGateway && pc.localDescription) {
               voiceGateway.send({
-                type: 'signal',
-                data: {
-                  type: 'answer',
-                  answer: pc.localDescription,
-                  target: userId
-                },
-                id: undefined
+                type: 'answer',
+                target: userId,
+                payload: { answer: pc.localDescription }
               });
             }
           })
@@ -500,14 +499,8 @@ const joinVoiceChannel = useCallback((channelId: string) => {
 
   // 3) Универсальный обработчик событий от VoiceGateway
 
-
-// ——————————————————————————————
-// где-то в компоненте
-const [activeSpeakers, setActiveSpeakers] = useState<Record<string, boolean>>({});
-
-// ——————————————————————————————
-// сам onEvent
-const onEvent = (event: VoiceEvent) => {
+  // Обработчик всех входящих событий от сервера
+  const onEvent = (event: VoiceEvent) => {
   const rawUserId = event.userId ?? '';
   const peerId    = normalizeUUID(rawUserId);
 
@@ -656,8 +649,7 @@ const onEvent = (event: VoiceEvent) => {
           lastSpeakingState = isSpeaking;
           voiceGateway?.send({
             type: 'user-speaking',
-            isSpeaking,
-            id: undefined
+            payload: { isSpeaking }
           });
         }
       }, 200); // Проверка каждые 200 мс
@@ -1211,13 +1203,14 @@ const onEvent = (event: VoiceEvent) => {
           ONLINE — {members.length}
         </div>
         
-        {members.map(member => {
+        {members.map((member, index) => {
           const normalizedId = normalizeUUID(member.id);
+          const key = normalizedId || `member-${index}`;
           const displayName = member.username || `User-${normalizedId.slice(0,4)}`;
           const isInVoice = voiceUsers.some(u => normalizeUUID(u.id) === normalizedId);
-          
+
           return (
-            <div key={normalizedId} className="flex items-center p-2 rounded hover:bg-gray-700">
+            <div key={key} className="flex items-center p-2 rounded hover:bg-gray-700">
               <div className="relative">
                 <div className="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center mr-2">
                   {displayName.charAt(0)}

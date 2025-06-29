@@ -2,7 +2,7 @@ import { normalizeUUID } from './uuid';
 
 export type VoiceEvent = {
   id: any;
-  type: 'join' | 'leave' | 'signal' | 'auth-response' | 'user-speaking';
+  type: string; // тип события от сервера
   userId?: string;
   data?: any;
   success?: boolean;
@@ -32,10 +32,10 @@ export class VoiceGateway {
 
   connect() {
     if (this.socket) return;
-    
+
     const base = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
-    const url = `${base}/ws/voice`;
-    
+    const url = `${base}/ws/voice?token=${this.token}&channelId=${this.channelId}`;
+
     try {
       this.socket = new WebSocket(url);
       this.setupEventHandlers();
@@ -50,37 +50,61 @@ export class VoiceGateway {
 
     this.socket.onopen = () => {
       console.log('[Voice] connected');
-      // Отправляем аутентификационные данные
-      this.socket?.send(JSON.stringify({
-        type: 'auth',
-        token: this.token,
-        channelId: this.channelId
-      }));
+      // отправляем токен (обработчик на бэкенде его ожидает)
+      this.socket?.send(JSON.stringify({ token: this.token }));
       this.reconnectAttempts = 0;
     };
 
     this.socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'auth-response') {
-          if (!data.success) {
-            console.error('[Voice] auth failed:', data.error);
-            this.handleAuthError(data.error);
+        const raw = JSON.parse(event.data);
+
+        if (raw.type === 'auth-response') {
+          if (!raw.success) {
+            console.error('[Voice] auth failed:', raw.error);
+            this.handleAuthError(raw.error);
           }
-          
-          // Всегда передаем auth-response обработчикам
-          this.handlers.forEach(handler => handler(data));
+          this.handlers.forEach(h => h(raw));
           return;
         }
 
-        // Для других событий нормализуем userId
-        const normalizedEvent: VoiceEvent = {
-          ...data,
-          userId: data.userId ? normalizeUUID(data.userId) : undefined
-        };
-        
-        this.handlers.forEach(handler => handler(normalizedEvent));
+        let out: VoiceEvent | null = null;
+
+        switch (raw.type) {
+          case 'offer':
+          case 'answer':
+          case 'candidate':
+            out = {
+              type: 'signal',
+              userId: raw.sender ? normalizeUUID(raw.sender) : undefined,
+              data: { type: raw.type, ...raw.payload, target: raw.target }
+            };
+            break;
+          case 'user-speaking':
+            out = {
+              type: 'user-speaking',
+              userId: raw.sender ? normalizeUUID(raw.sender) : undefined,
+              isSpeaking: raw.payload?.isSpeaking
+            };
+            break;
+          case 'join':
+          case 'leave':
+            out = {
+              type: raw.type,
+              userId: raw.sender ? normalizeUUID(raw.sender) : undefined
+            };
+            break;
+          default:
+            out = {
+              type: raw.type,
+              userId: raw.sender ? normalizeUUID(raw.sender) : undefined,
+              data: raw.payload
+            };
+        }
+
+        if (out) {
+          this.handlers.forEach(h => h(out));
+        }
       } catch (error) {
         console.error('Failed to parse voice event:', error);
       }
@@ -133,18 +157,21 @@ export class VoiceGateway {
     this.handlers = this.handlers.filter(h => h !== callback);
   }
 
-  send(event: Omit<VoiceEvent, 'userId'>) {
+  send(event: Record<string, any>) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       console.warn('[Voice] not connected - message skipped');
       return false;
     }
-    
-    this.socket.send(JSON.stringify(event));
+
+    const payload = { room: this.channelId, ...event };
+    this.socket.send(JSON.stringify(payload));
     return true;
   }
 
   disconnect() {
     if (this.socket) {
+      // уведомляем комнату о выходе
+      this.send({ type: 'leave' });
       this.socket.close(1000, 'User disconnected');
       this.socket = null;
     }
@@ -182,10 +209,7 @@ export class VoiceGateway {
         // Отправляем событие только при изменении состояния
         if (isSpeaking !== lastSpeakingState) {
           lastSpeakingState = isSpeaking;
-          this.socket?.send(JSON.stringify({
-            type: 'user-speaking',
-            isSpeaking
-          }));
+          this.send({ type: 'user-speaking', payload: { isSpeaking } });
         }
         
         // Обновляем время последней активности
