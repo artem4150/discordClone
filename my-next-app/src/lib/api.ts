@@ -126,8 +126,10 @@ export const channel = {
 
 
 export const user = {
-  getMe: (): Promise<AxiosResponse<User>> => 
+  getMe: (): Promise<AxiosResponse<User>> =>
     api.get('/users/me'),
+  getById: (id: string): Promise<AxiosResponse<User>> =>
+    api.get(`/users/${id}`),
 };
 
 
