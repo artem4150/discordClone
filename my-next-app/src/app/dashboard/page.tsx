@@ -62,6 +62,21 @@ export default function DashboardPage() {
   const [audioElements, setAudioElements] = useState<Record<string, HTMLAudioElement>>({});
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [peerConnections, setPeerConnections] = useState<Record<string, RTCPeerConnection>>({});
+
+  // Доступные аудио устройства и выбранные id
+  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState('');
+  const [selectedOutputDeviceId, setSelectedOutputDeviceId] = useState('');
+
+  // При смене устройства вывода обновляем все аудио элементы
+  useEffect(() => {
+    Object.values(audioElements).forEach(a => {
+      if (selectedOutputDeviceId && (a as any).setSinkId) {
+        (a as any).setSinkId(selectedOutputDeviceId).catch(() => {});
+      }
+    });
+  }, [selectedOutputDeviceId, audioElements]);
   
   // Состояния для приглашения пользователей
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -121,6 +136,31 @@ export default function DashboardPage() {
       return () => clearTimeout(timer);
     }
   }, [voiceNotifications]);
+
+  // Получение списка аудио устройств
+  useEffect(() => {
+    const updateDevices = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter(d => d.kind === 'audioinput');
+        const outputs = devices.filter(d => d.kind === 'audiooutput');
+        setInputDevices(inputs);
+        setOutputDevices(outputs);
+        if (!selectedInputDeviceId && inputs[0]) {
+          setSelectedInputDeviceId(inputs[0].deviceId);
+        }
+        if (!selectedOutputDeviceId && outputs[0]) {
+          setSelectedOutputDeviceId(outputs[0].deviceId);
+        }
+      } catch (err) {
+        console.error('Failed to enumerate devices', err);
+      }
+    };
+
+    updateDevices();
+    navigator.mediaDevices.addEventListener('devicechange', updateDevices);
+    return () => navigator.mediaDevices.removeEventListener('devicechange', updateDevices);
+  }, []);
 
   // Проверка аутентификации и загрузка данных
   useEffect(() => {
@@ -225,13 +265,13 @@ export default function DashboardPage() {
       // Преобразование участников с нормализацией ID и загрузкой ника
       const transformedMembers = await Promise.all(
         membersResponse.data.map(async (member: any) => {
-          const id = normalizeUUID(member.id);
+          const uid = normalizeUUID(member.userId || member.id);
           try {
-            const res = await userApi.getById(id);
-            return { id, username: res.data.username || '', email: res.data.email || '' } as User;
+            const res = await userApi.getById(uid);
+            return { id: uid, username: res.data.username || '', email: res.data.email || '' } as User;
           } catch (err) {
-            console.warn('Failed to fetch user info', id, err);
-            return { id, username: '', email: '' } as User;
+            console.warn('Failed to fetch user info', uid, err);
+            return { id: uid, username: '', email: '' } as User;
           }
         })
       );
@@ -333,13 +373,15 @@ export default function DashboardPage() {
 
     try {
       // Запрос доступа к микрофону
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const constraints: MediaStreamConstraints = {
         audio: {
+          deviceId: selectedInputDeviceId ? { exact: selectedInputDeviceId } : undefined,
           noiseSuppression: true,
           echoCancellation: true,
         },
-        video: false
-      });
+        video: false,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       setLocalStream(stream);
       
@@ -405,6 +447,9 @@ export default function DashboardPage() {
       audio.srcObject = remoteStream;
       audio.autoplay = true;
       audio.volume = 1.0;
+      if (selectedOutputDeviceId && (audio as any).setSinkId) {
+        (audio as any).setSinkId(selectedOutputDeviceId).catch(() => {});
+      }
       
       setAudioElements(prev => ({
         ...prev,
@@ -515,13 +560,16 @@ const joinVoiceChannel = useCallback((channelId: string) => {
 
     case 'join':
       if (peerId && !voiceUsers.some(u => normalizeUUID(u.id) === peerId)) {
+        const info = userMap[peerId];
         setVoiceUsers(prev => [
           ...prev,
-          { id: peerId, username: `User-${peerId.slice(0, 4)}`, email: '' } as User
+          { id: peerId, username: info?.username || `User-${peerId.slice(0, 4)}`, email: info?.email || '' } as User
         ]);
         if (localStream && peerId !== currentUserId) {
           createPeerConnection(peerId, localStream);
         }
+        // сообщаем о своём присутствии новому пользователю
+        voiceGateway.send({ type: 'join' });
       }
       setVoiceNotifications(prev => [
         ...prev,
@@ -601,7 +649,10 @@ const joinVoiceChannel = useCallback((channelId: string) => {
   currentUserId,
   initVoiceConnection,
   createPeerConnection,
-  handleSignal
+  handleSignal,
+  userMap,
+  selectedOutputDeviceId,
+  selectedInputDeviceId
 ]);
 
 
@@ -1089,12 +1140,34 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                 <div className="text-2xl font-bold mb-4">🔊 {activeChannel.name}</div>
                 
                 {!isInVoiceChannel ? (
-                  <button
-                    onClick={() => joinVoiceChannel(activeChannel.id)}
-                    className="px-6 py-3 bg-indigo-600 rounded hover:bg-indigo-500"
-                  >
-                    Join Voice Channel
-                  </button>
+                  <>
+                    <div className="mb-4 flex space-x-2">
+                      <select
+                        value={selectedInputDeviceId}
+                        onChange={(e) => setSelectedInputDeviceId(e.target.value)}
+                        className="bg-gray-800 rounded p-2 text-sm"
+                      >
+                        {inputDevices.map(dev => (
+                          <option key={dev.deviceId} value={dev.deviceId}>{dev.label || dev.deviceId}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={selectedOutputDeviceId}
+                        onChange={(e) => setSelectedOutputDeviceId(e.target.value)}
+                        className="bg-gray-800 rounded p-2 text-sm"
+                      >
+                        {outputDevices.map(dev => (
+                          <option key={dev.deviceId} value={dev.deviceId}>{dev.label || dev.deviceId}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={() => joinVoiceChannel(activeChannel.id)}
+                      className="px-6 py-3 bg-indigo-600 rounded hover:bg-indigo-500"
+                    >
+                      Join Voice Channel
+                    </button>
+                  </>
                 ) : (
                   <>
                     <div className="grid grid-cols-3 gap-4 max-w-2xl">
