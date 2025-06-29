@@ -338,6 +338,9 @@ export default function DashboardPage() {
       // Запускаем обнаружение речи
       startSpeakingDetection(stream);
       
+      // Уведомляем о подключении после получения медиа
+      voiceGateway.send({ type: 'join' });
+
       // Создаем пиринговые соединения с другими участниками
       voiceUsers.forEach(user => {
         const userId = normalizeUUID(user.id);
@@ -374,13 +377,9 @@ export default function DashboardPage() {
     pc.onicecandidate = (event) => {
       if (event.candidate && voiceGateway) {
         voiceGateway.send({
-          type: 'signal',
-          data: {
-            type: 'candidate',
-            candidate: event.candidate,
-            target: userId
-          },
-          id: undefined
+          type: 'candidate',
+          target: userId,
+          payload: { candidate: event.candidate }
         });
       }
     };
@@ -411,13 +410,9 @@ export default function DashboardPage() {
       .then(() => {
         if (voiceGateway && pc.localDescription) {
           voiceGateway.send({
-            type: 'signal',
-            data: {
-              type: 'offer',
-              offer: pc.localDescription,
-              target: userId
-            },
-            id: undefined
+            type: 'offer',
+            target: userId,
+            payload: { offer: pc.localDescription }
           });
         }
       })
@@ -451,13 +446,9 @@ export default function DashboardPage() {
           .then(() => {
             if (voiceGateway && pc.localDescription) {
               voiceGateway.send({
-                type: 'signal',
-                data: {
-                  type: 'answer',
-                  answer: pc.localDescription,
-                  target: userId
-                },
-                id: undefined
+                type: 'answer',
+                target: userId,
+                payload: { answer: pc.localDescription }
               });
             }
           })
@@ -656,8 +647,7 @@ const onEvent = (event: VoiceEvent) => {
           lastSpeakingState = isSpeaking;
           voiceGateway?.send({
             type: 'user-speaking',
-            isSpeaking,
-            id: undefined
+            payload: { isSpeaking }
           });
         }
       }, 200); // Проверка каждые 200 мс
