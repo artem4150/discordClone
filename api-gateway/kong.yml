@@ -1,0 +1,118 @@
+_format_version: "2.1"
+
+services:
+  - name: auth
+    url: http://auth-service:3000
+
+  - name: guild-service
+    url: http://guild-service:8080
+
+  - name: channel-service
+    url: http://channel-service:8080
+    
+
+  - name: chat-service
+    url: http://chat-service:8080
+
+  - name: voice-service
+    url: http://voice-service:8080
+  
+  # Объединяем все сервисы приглашений под одним сервисом
+  - name: invitation-service
+    url: http://guild-service:8080
+
+routes:
+  - name: auth-public
+    service: auth
+    paths:
+      - /auth/register
+      - /auth/login
+    strip_path: false
+
+  - name: auth-protected
+    service: auth
+    paths:
+      - /auth
+    strip_path: false
+
+  - name: invitation-service
+    service: guild-service
+    paths:
+      - /invitations
+      - /invitations/(?<code>\w+)
+      - /invites/(?<code>\w+)/accept
+    strip_path: false  # Важно для правильной передачи пути
+
+  - name: channels-list
+    service: channel-service
+    paths:
+      - /guilds/:guildId/channels
+    strip_path: true
+    protocols:
+      - http
+
+  - name: users-me
+    service: auth 
+    paths:
+      - /users/me
+    strip_path: false
+    protocols:
+      - http
+
+  - name: channels-item
+    service: channel-service
+    paths:
+      - /guilds/:guildId/channels/:id
+    strip_path: false
+
+  - name: voice-signaling
+    service: voice-service
+    paths:
+      - /ws/voice
+    strip_path: false
+    protocols:
+      - http
+
+  - name: guilds
+    service: guild-service
+    paths:
+      - /guilds
+      - /guilds/*
+    strip_path: false
+
+  - name: chat-history
+    service: chat-service
+    paths:
+      - /channels/
+    strip_path: false
+
+  - name: chat-ws
+    service: chat-service
+    paths:
+      - /ws/chat
+    strip_path: false
+    protocols:
+      - http
+
+plugins:
+  # Общий CORS для всех сервисов
+  - name: cors
+    config:
+      origins:
+        - http://localhost:3001
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+        - PATCH
+        - HEAD
+        - CONNECT
+      headers:
+        - Origin
+        - Authorization
+        - Content-Type
+        - Accept
+      credentials: true
+      preflight_continue: false
