@@ -1,4 +1,6 @@
-version: "3.8"
+# The `version` field is deprecated in Compose v2 and newer so we omit it
+# to silence the warning shown on startup.
+# version: "3.8"
 
 services:
   postgres:
@@ -15,6 +17,10 @@ services:
 
   caddy:
     image: caddy:2
+    environment:
+      # Pass DOMAIN into the container so the Caddyfile can expand {$DOMAIN}
+      - DOMAIN=${DOMAIN}
+      - LE_EMAIL=${LE_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./caddy_data:/data
