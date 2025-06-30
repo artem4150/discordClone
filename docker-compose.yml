@@ -16,7 +16,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./my-next-app
       dockerfile: Dockerfile
       args:
         # совпадает с тем, что слушает Kong (API-gateway)
