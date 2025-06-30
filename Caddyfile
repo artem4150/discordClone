@@ -1,0 +1,6 @@
+{$DOMAIN} {
+    reverse_proxy frontend:3001
+}
+api.{$DOMAIN} {
+    reverse_proxy kong:8000
+}
