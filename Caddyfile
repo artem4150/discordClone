@@ -1,6 +1,13 @@
-{$DOMAIN} {
+:{$CADDY_HTTP_PORT} {
+    redir https://{$DOMAIN}:{$CADDY_HTTPS_PORT}{uri}
+}
+
+https://{$DOMAIN}:{$CADDY_HTTPS_PORT} {
+    tls internal
     reverse_proxy frontend:3001
 }
-api.{$DOMAIN} {
+
+https://api.{$DOMAIN}:{$CADDY_HTTPS_PORT} {
+    tls internal
     reverse_proxy kong:8000
 }

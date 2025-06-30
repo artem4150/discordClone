@@ -23,7 +23,16 @@ This will bootstrap the full stack in the background using the values from
 
 ### HTTPS with Caddy
 
-Caddy acts as the reverse proxy and automatically obtains Let's Encrypt certificates for the domain specified in `DOMAIN`. If port 443 is in use, set `CADDY_HTTPS_PORT` in `.env` to an available port (default `444`) and open `https://<DOMAIN>:<CADDY_HTTPS_PORT>` in the browser.
+When ports 80/443 are unavailable, Caddy can still serve HTTPS using its internal CA.
+Edit `.env` to set `CADDY_HTTP_PORT` and `CADDY_HTTPS_PORT` (defaults are `8080` and `8443`).
+After starting the stack run:
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy_root.crt
+sudo trust anchor ./caddy_root.crt       # install on Linux (use Keychain on macOS or double‑click on Windows)
+```
+
+Then open `https://<DOMAIN>:<CADDY_HTTPS_PORT>` in the browser.
 
 ### Troubleshooting
 
