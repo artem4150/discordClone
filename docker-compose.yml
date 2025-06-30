@@ -13,6 +13,26 @@ services:
     networks:
       - backend
 
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # совпадает с тем, что слушает Kong (API-gateway)
+        NEXT_PUBLIC_API_URL: http://kong:8000
+    image: myorg/frontend:latest
+    depends_on:
+      - kong
+    environment:
+      # дублируем на случай, если какие-то пакеты читают её в рантайме
+      - NEXT_PUBLIC_API_URL=http://kong:8000
+    ports:
+      - "3001:3001"       # <-- 3006:3000, чтобы не конфликтовать с другими сервисами
+    networks:
+      - backend
+
+
   kong:
     image: kong:3
     environment:
