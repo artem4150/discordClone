@@ -13,6 +13,26 @@ services:
     networks:
       - backend
 
+  traefik:
+    image: traefik:v2.10
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.email=${LE_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./acme:/letsencrypt
+    networks:
+      - backend
+
 
   frontend:
     build:
@@ -20,19 +40,25 @@ services:
       dockerfile: Dockerfile
       args:
         # совпадает с тем, что слушает Kong (API-gateway)
-        NEXT_PUBLIC_API_URL: http://77.110.98.32:8000
-        NEXT_PUBLIC_WS_URL: ws://77.110.98.32:8000
+        NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
+        NEXT_PUBLIC_WS_URL: wss://api.${DOMAIN}
     image: myorg/frontend:latest
     depends_on:
       - kong
     environment:
       # дублируем на случай, если какие-то пакеты читают её в рантайме
-      - NEXT_PUBLIC_API_URL=http://77.110.98.32:8000
-      - NEXT_PUBLIC_WS_URL=ws://77.110.98.32:8000
+      - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
+      - NEXT_PUBLIC_WS_URL=wss://api.${DOMAIN}
     ports:
       - "3001:3001"       # <-- 3006:3000, чтобы не конфликтовать с другими сервисами
     networks:
       - backend
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.frontend.entrypoints=web,websecure
+      - traefik.http.routers.frontend.tls.certresolver=letsencrypt
+      - traefik.http.services.frontend.loadbalancer.server.port=3001
 
 
   kong:
@@ -51,6 +77,12 @@ services:
       - postgres
     networks:
       - backend
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`api.${DOMAIN}`)
+      - traefik.http.routers.api.entrypoints=web,websecure
+      - traefik.http.routers.api.tls.certresolver=letsencrypt
+      - traefik.http.services.api.loadbalancer.server.port=8000
 
   auth-service:
     build: ./auth-service
@@ -124,7 +156,7 @@ services:
       - CASSANDRA_KEYSPACE=chats
       - JWT_SECRET=verysecret
       - PORT=8080
-      - ALLOW_ORIGINS=http://77.110.98.32:3001
+      - ALLOW_ORIGINS=https://${DOMAIN}
     ports:
       - "3004:8080"
     networks:
