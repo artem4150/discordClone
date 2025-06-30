@@ -20,7 +20,13 @@ docker-compose up -d
 This will bootstrap the full stack in the background using the values from
 `.env`.
 
+
+### HTTPS with Caddy
+
+Caddy acts as the reverse proxy and automatically obtains Let's Encrypt certificates for the domain specified in `DOMAIN`. If port 443 is in use, set `CADDY_HTTPS_PORT` in `.env` to an available port (default `444`) and open `https://<DOMAIN>:<CADDY_HTTPS_PORT>` in the browser.
+
 ### Troubleshooting
+
 
 If you see a DNS error for `guce.nip.io`, make sure you open `https://77.110.98.32.nip.io` directly. The hostname `guce.nip.io` is not registered and will result in `NXDOMAIN`.
 
