@@ -25,8 +25,10 @@ services:
       - --certificatesresolvers.letsencrypt.acme.email=${LE_EMAIL}
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
     ports:
-      - "80:80"
-      - "443:443"
+
+      - "${TRAEFIK_HTTP_PORT}:80"
+      - "${TRAEFIK_HTTPS_PORT}:443"
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./acme:/letsencrypt
