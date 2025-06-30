@@ -1,7 +1,6 @@
 import { normalizeUUID } from './uuid';
 
 export type VoiceEvent = {
-  id: any;
   type: string; // тип события от сервера
   userId?: string;
   data?: any;

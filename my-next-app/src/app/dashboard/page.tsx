@@ -569,7 +569,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
           createPeerConnection(peerId, localStream);
         }
         // сообщаем о своём присутствии новому пользователю
-        voiceGateway.send({ type: 'join' });
+        voiceGateway?.send({ type: 'join' });
       }
       setVoiceNotifications(prev => [
         ...prev,
@@ -622,7 +622,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
       if (typeof event.isSpeaking === 'boolean') {
         setActiveSpeakers(prev => ({
           ...prev,
-          [peerId]: event.isSpeaking
+          [peerId]: event.isSpeaking as boolean
         }));
       }
       break;
