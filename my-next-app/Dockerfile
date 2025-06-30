@@ -11,9 +11,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 # Копируем весь исходник
 COPY . .
-# Передаем API_URL, чтобы Next.js вшил его в билд
+# Передаем API_URL и WS_URL, чтобы Next.js вшил их в билд
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_WS_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 RUN npm run build
 
 # 3) Собираем облегчённый образ для продакшна
@@ -29,6 +31,7 @@ RUN npm ci --production
 
 # Пробрасываем переменную ещё раз, если кто-то читает её в рантайме
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 
-EXPOSE 3000
+EXPOSE 3001
 CMD ["npm", "run", "start"]
