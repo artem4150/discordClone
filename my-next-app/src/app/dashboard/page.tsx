@@ -140,6 +140,11 @@ export default function DashboardPage() {
   // Получение списка аудио устройств
   useEffect(() => {
     const updateDevices = async () => {
+      if (!navigator?.mediaDevices?.enumerateDevices) {
+        console.warn('MediaDevices API not available');
+        return;
+      }
+
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter(d => d.kind === 'audioinput');
@@ -158,8 +163,15 @@ export default function DashboardPage() {
     };
 
     updateDevices();
-    navigator.mediaDevices.addEventListener('devicechange', updateDevices);
-    return () => navigator.mediaDevices.removeEventListener('devicechange', updateDevices);
+
+    if (navigator?.mediaDevices?.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', updateDevices);
+      return () => {
+        navigator.mediaDevices.removeEventListener('devicechange', updateDevices);
+      };
+    }
+
+    return;
   }, []);
 
   // Проверка аутентификации и загрузка данных
@@ -381,6 +393,11 @@ export default function DashboardPage() {
         },
         video: false,
       };
+
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('MediaDevices API not available');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       
       setLocalStream(stream);
