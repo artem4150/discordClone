@@ -21,6 +21,9 @@ services:
       # Pass DOMAIN into the container so the Caddyfile can expand {$DOMAIN}
       - DOMAIN=${DOMAIN}
       - LE_EMAIL=${LE_EMAIL}
+      # Configure ports if the defaults 80/443 are unavailable
+      - CADDY_HTTP_PORT=${CADDY_HTTP_PORT}
+      - CADDY_HTTPS_PORT=${CADDY_HTTPS_PORT}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - ./caddy_data:/data
