@@ -25,9 +25,11 @@ ENV NODE_ENV=production
 # Нужно положить только то, что нужно на рантайме:
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-# Установим только production-зависимости
-RUN npm ci --production
+ # Копируем и package.json, и package-lock.json, чтобы npm ci мог работать
+ COPY --from=builder /app/package.json ./package.json
+ COPY --from=builder /app/package-lock.json ./package-lock.json
+ # Установим только production-зависимости
+ RUN npm ci --omit=dev
 
 # Пробрасываем переменную ещё раз, если кто-то читает её в рантайме
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
