@@ -57,14 +57,17 @@ services:
     image: kong:3
     environment:
       KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yml
+      # конфигурация генерируется в /tmp/kong.yml через envsubst
+      KONG_DECLARATIVE_CONFIG: /tmp/kong.yml
       KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+    command: >
+      sh -c "envsubst '$$DOMAIN' < /etc/kong/kong.yml > /tmp/kong.yml &&
+             exec /docker-entrypoint.sh kong docker-start"
     ports:
       - "8000:8000"
       - "8001:8001"
     volumes:
-      - ./api-gateway/kong.yml:/etc/kong/kong.yml       # <-- если переместили файл в корень
-      # - ./api-gateway/kong.yml:/etc/kong/kong.yml  # <-- или этот, если файл действительно здесь 
+      - ./api-gateway/kong.yml:/etc/kong/kong.yml
     depends_on:
       - postgres
     networks:
