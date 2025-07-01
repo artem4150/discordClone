@@ -51,6 +51,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [voiceGateway, setVoiceGateway] = useState<VoiceGateway | null>(null);
+  const voiceGatewayRef = useRef<VoiceGateway | null>(null);
   const [isInVoiceChannel, setIsInVoiceChannel] = useState(false);
   const [voiceNotifications, setVoiceNotifications] = useState<{userId: string, action: 'join' | 'leave'}[]>([]);
   const [voiceError, setVoiceError] = useState('');
@@ -381,7 +382,8 @@ export default function DashboardPage() {
   };
   // Инициализация голосового соединения
   const initVoiceConnection = async () => {
-    if (!voiceGateway) return;
+    const gw = voiceGatewayRef.current;
+    if (!gw) return;
 
     try {
       let stream = localStream;
@@ -411,7 +413,7 @@ export default function DashboardPage() {
       }
       
       // Уведомляем о подключении после получения медиа
-      voiceGateway.send({ type: 'join' });
+      gw.send({ type: 'join' });
 
       // Создаем пиринговые соединения с другими участниками
       voiceUsers.forEach(user => {
@@ -447,8 +449,9 @@ export default function DashboardPage() {
     
     // Обработка ICE кандидатов
     pc.onicecandidate = (event) => {
-      if (event.candidate && voiceGateway) {
-        voiceGateway.send({
+      const gw = voiceGatewayRef.current;
+      if (event.candidate && gw) {
+        gw.send({
           type: 'candidate',
           target: userId,
           payload: { candidate: event.candidate }
@@ -483,8 +486,9 @@ export default function DashboardPage() {
     pc.createOffer()
       .then(offer => pc.setLocalDescription(offer))
       .then(() => {
-        if (voiceGateway && pc.localDescription) {
-          voiceGateway.send({
+        const gw = voiceGatewayRef.current;
+        if (gw && pc.localDescription) {
+          gw.send({
             type: 'offer',
             target: userId,
             payload: { offer: pc.localDescription }
@@ -519,8 +523,9 @@ export default function DashboardPage() {
           .then(() => pc.createAnswer())
           .then(answer => pc.setLocalDescription(answer))
           .then(() => {
-            if (voiceGateway && pc.localDescription) {
-              voiceGateway.send({
+            const gw = voiceGatewayRef.current;
+            if (gw && pc.localDescription) {
+              gw.send({
                 type: 'answer',
                 target: userId,
                 payload: { answer: pc.localDescription }
@@ -552,9 +557,10 @@ const joinVoiceChannel = useCallback((channelId: string) => {
   if (!token) return;
 
   // 1) Отключаемся от предыдущего канала, если он есть
-  if (voiceGateway) {
-    voiceGateway.disconnect();
+  if (voiceGatewayRef.current) {
+    voiceGatewayRef.current.disconnect();
     setVoiceGateway(null);
+    voiceGatewayRef.current = null;
     setIsInVoiceChannel(false);
     setVoiceUsers([]);
     stopSpeakingDetection();
@@ -563,6 +569,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
   // 2) Создаём новый голосовой шлюз и сохраняем его в стейте
   const gateway = new VoiceGateway(token, channelId);
   setVoiceGateway(gateway);
+  voiceGatewayRef.current = gateway;
 
   // 3) Универсальный обработчик событий от VoiceGateway
 
@@ -591,7 +598,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
           createPeerConnection(peerId, localStream);
         }
         // сообщаем о своём присутствии новому пользователю
-        voiceGateway?.send({ type: 'join' });
+        voiceGatewayRef.current?.send({ type: 'join' });
       }
       setVoiceNotifications(prev => [
         ...prev,
@@ -720,7 +727,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
         // Отправляем событие только при изменении состояния
         if (isSpeaking !== lastSpeakingState) {
           lastSpeakingState = isSpeaking;
-          voiceGateway?.send({
+          voiceGatewayRef.current?.send({
             type: 'user-speaking',
             payload: { isSpeaking }
           });
@@ -748,9 +755,10 @@ const joinVoiceChannel = useCallback((channelId: string) => {
 
   // Выход из голосового канала
   const leaveVoiceChannel = () => {
-    if (voiceGateway) {
-      voiceGateway.disconnect();
+    if (voiceGatewayRef.current) {
+      voiceGatewayRef.current.disconnect();
       setVoiceGateway(null);
+      voiceGatewayRef.current = null;
     }
     
     if (localStream) {
@@ -889,7 +897,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                 setActiveChannel(channel);
                 
                 // Выход из голосового канала при переходе в текстовый
-                if (channel.type !== ChannelType.VOICE && voiceGateway) {
+                if (channel.type !== ChannelType.VOICE && voiceGatewayRef.current) {
                   leaveVoiceChannel();
                 }
                 
