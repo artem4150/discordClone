@@ -99,7 +99,7 @@ plugins:
   - name: cors
     config:
       origins:
-        - https://${DOMAIN}
+        - https://77.110.98.32.nip.io/
       methods:
         - GET
         - POST
