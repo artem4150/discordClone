@@ -384,26 +384,31 @@ export default function DashboardPage() {
     if (!voiceGateway) return;
 
     try {
-      // Запрос доступа к микрофону
-      const constraints: MediaStreamConstraints = {
-        audio: {
-          deviceId: selectedInputDeviceId ? { exact: selectedInputDeviceId } : undefined,
-          noiseSuppression: true,
-          echoCancellation: true,
-        },
-        video: false,
-      };
+      let stream = localStream;
 
-      if (!navigator?.mediaDevices?.getUserMedia) {
-        throw new Error('MediaDevices API not available');
+      // Получаем медиапоток только если его еще нет
+      if (!stream) {
+        const constraints: MediaStreamConstraints = {
+          audio: {
+            deviceId: selectedInputDeviceId ? { exact: selectedInputDeviceId } : undefined,
+            noiseSuppression: true,
+            echoCancellation: true,
+          },
+          video: false,
+        };
+
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          throw new Error('MediaDevices API not available');
+        }
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        setLocalStream(stream);
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      
-      setLocalStream(stream);
-      
-      // Запускаем обнаружение речи
-      startSpeakingDetection(stream);
+      // Запускаем обнаружение речи, если ещё не запущено
+      if (!speakingCheckIntervalRef.current) {
+        startSpeakingDetection(stream);
+      }
       
       // Уведомляем о подключении после получения медиа
       voiceGateway.send({ type: 'join' });
