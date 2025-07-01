@@ -52,9 +52,18 @@ routes:
       - http
 
   - name: users-me
-    service: auth 
+    service: auth
     paths:
       - /users/me
+    strip_path: false
+    protocols:
+      - http
+
+  # Публичная информация о пользователе по ID
+  - name: users-public
+    service: auth
+    paths:
+      - /users/(?<id>[^/]+)
     strip_path: false
     protocols:
       - http
