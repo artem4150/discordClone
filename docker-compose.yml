@@ -81,6 +81,8 @@ services:
       DB_PASS: nestpass
       DB_NAME: authdb
       JWT_SECRET: verysecret
+      # Разрешённые домены для CORS
+      ALLOW_ORIGINS: https://${DOMAIN}
     ports:
       - "3000:3000"
     networks:
