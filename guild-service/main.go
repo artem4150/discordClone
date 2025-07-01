@@ -44,17 +44,15 @@ func main() {
         log.Fatalf("failed to create uuid extension: %v", err)
     }
 
-    // Миграция модели Guild
-    if err := db.AutoMigrate(&models.Guild{}); err != nil {
-        log.Fatalf("guilds migration failed: %v", err)
+    // Миграция моделей
+    if err := db.AutoMigrate(
+        &models.Guild{},
+        &models.Invitation{},
+        &models.Member{},
+        &models.Channel{},
+    ); err != nil {
+        log.Fatalf("migration failed: %v", err)
     }
-	if err := db.AutoMigrate(&models.Invitation{}); err != nil {
-		log.Fatalf("invitations migration failed: %v", err)
-	}
-
-  if err := db.AutoMigrate(&models.Guild{}, &models.Invitation{}); err != nil {
-    log.Fatalf("Migration failed: %v", err)
-  }
     // Запускаем HTTP
     r := gin.Default()
     // Регистрируем защищённые маршруты
