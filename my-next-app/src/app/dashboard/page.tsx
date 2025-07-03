@@ -588,22 +588,30 @@ const joinVoiceChannel = useCallback((channelId: string) => {
       break;
 
     case 'join':
-      if (peerId && !voiceUsers.some(u => normalizeUUID(u.id) === peerId)) {
+      if (
+        peerId &&
+        peerId !== currentUserId &&
+        !voiceUsers.some(u => normalizeUUID(u.id) === peerId)
+      ) {
         const info = userMap[peerId];
         setVoiceUsers(prev => [
           ...prev,
-          { id: peerId, username: info?.username || `User-${peerId.slice(0, 4)}`, email: info?.email || '' } as User
+          {
+            id: peerId,
+            username: info?.username || `User-${peerId.slice(0, 4)}`,
+            email: info?.email || ''
+          } as User
         ]);
-        if (localStream && peerId !== currentUserId) {
+        if (localStream) {
           createPeerConnection(peerId, localStream);
         }
-        // сообщаем о своём присутствии новому пользователю
-        voiceGatewayRef.current?.send({ type: 'join' });
       }
-      setVoiceNotifications(prev => [
-        ...prev,
-        { userId: peerId, action: 'join' }
-      ]);
+      if (peerId && peerId !== currentUserId) {
+        setVoiceNotifications(prev => [
+          ...prev,
+          { userId: peerId, action: 'join' }
+        ]);
+      }
       break;
 
     case 'leave':
