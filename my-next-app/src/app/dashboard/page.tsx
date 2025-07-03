@@ -412,9 +412,6 @@ export default function DashboardPage() {
         startSpeakingDetection(stream);
       }
       
-      // Уведомляем о подключении после получения медиа
-      gw.send({ type: 'join' });
-
       // Создаем пиринговые соединения с другими участниками
       voiceUsers.forEach(user => {
         const userId = normalizeUUID(user.id);
@@ -475,6 +472,7 @@ export default function DashboardPage() {
       if (selectedOutputDeviceId && (audio as any).setSinkId) {
         (audio as any).setSinkId(selectedOutputDeviceId).catch(() => {});
       }
+      audio.play().catch(err => console.error('audio play error', err));
       
       setAudioElements(prev => ({
         ...prev,
@@ -579,6 +577,33 @@ const joinVoiceChannel = useCallback((channelId: string) => {
   const peerId    = normalizeUUID(rawUserId);
 
   switch (event.type) {
+    case 'user-list': {
+      const ids = Array.isArray(event.data?.users)
+        ? (event.data.users as string[])
+        : [];
+      const normalized = ids.map(id => normalizeUUID(id));
+      const others = normalized.filter(id => id !== currentUserId);
+
+      const newUsers = others.map(id => {
+        const info = userMap[id];
+        return {
+          id,
+          username: info?.username || `User-${id.slice(0, 4)}`,
+          email: info?.email || ''
+        } as User;
+      });
+
+      setVoiceUsers(newUsers);
+
+      if (localStream) {
+        others.forEach(id => {
+          if (!peerConnections[id]) {
+            createPeerConnection(id, localStream);
+          }
+        });
+      }
+      break;
+    }
     case 'auth-response':
       if (event.success) {
         initVoiceConnection();
