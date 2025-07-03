@@ -7,6 +7,7 @@ export type VoiceEvent = {
   success?: boolean;
   error?: string;
   isSpeaking?: boolean;
+  users?: string[];
 };
 
 
@@ -93,6 +94,15 @@ export class VoiceGateway {
               userId: raw.sender ? normalizeUUID(raw.sender) : undefined
             };
             break;
+          case 'user-list':
+            out = {
+              type: 'user-list',
+              data: raw.payload,
+              users: Array.isArray(raw.payload?.users)
+                ? raw.payload.users.map((u: string) => normalizeUUID(u))
+                : []
+            };
+            break;
           default:
             out = {
               type: raw.type,
@@ -169,8 +179,6 @@ export class VoiceGateway {
 
   disconnect() {
     if (this.socket) {
-      // уведомляем комнату о выходе
-      this.send({ type: 'leave' });
       this.socket.close(1000, 'User disconnected');
       this.socket = null;
     }
