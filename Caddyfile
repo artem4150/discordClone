@@ -1,6 +1,9 @@
 {$DOMAIN} {
+    auto_https off
     reverse_proxy frontend:3001
 }
+
 api.{$DOMAIN} {
+    auto_https off
     reverse_proxy kong:8000
 }
