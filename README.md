@@ -25,6 +25,8 @@ This will bootstrap the full stack in the background using the values from
 
  Caddy acts as the reverse proxy and automatically obtains Let's Encrypt certificates for the domain specified in `DOMAIN`. If port 443 is in use, set `CADDY_HTTPS_PORT` in `.env` to an available port (default `444`) and open `https://<DOMAIN>:<CADDY_HTTPS_PORT>` in the browser.
 
+If your `DOMAIN` points to a private address like `127.0.0.1.nip.io`, Let's Encrypt cannot issue a certificate and Caddy's automatic redirect to HTTPS will fail. The included `Caddyfile` disables automatic HTTPS so the stack is reachable over plain HTTP at `http://<DOMAIN>`.
+
 If you see an error like `Bind for 0.0.0.0:80 failed` when starting `caddy`, another service is already using that port. Set `CADDY_HTTP_PORT` in `.env` to an unused port (for example `8080`) and access `http://<DOMAIN>:<CADDY_HTTP_PORT>` instead.
 
 ### Troubleshooting
