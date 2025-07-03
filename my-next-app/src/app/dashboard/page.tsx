@@ -1,37 +1,37 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '../../store/useAuth';
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "../../store/useAuth";
 import api, {
   guild as guildApi,
   channel as channelApi,
   user as userApi,
-  getIceServers
-} from '../../lib/api';
-import { 
-  Guild, 
-  Channel, 
-  Message, 
+  getIceServers,
+} from "../../lib/api";
+import {
+  Guild,
+  Channel,
+  Message,
   User,
-  ChannelType
-} from '../../lib/generated';
-import { Gateway } from '../../lib/ws';
-import { VoiceGateway, VoiceEvent } from '../../lib/voiceGateway';
-import { getMessages as getChannelMessages } from '../../lib/api';
-import { normalizeUUID } from '../../lib/uuid';
+  ChannelType,
+} from "../../lib/generated";
+import { Gateway } from "../../lib/ws";
+import { VoiceGateway, VoiceEvent } from "../../lib/voiceGateway";
+import { getMessages as getChannelMessages } from "../../lib/api";
+import { normalizeUUID } from "../../lib/uuid";
 
 export default function DashboardPage() {
   const router = useRouter();
   const { token, user, clearAuth } = useAuth();
-  const currentUserId = user?.id ? normalizeUUID(user.id) : '';
-  
+  const currentUserId = user?.id ? normalizeUUID(user.id) : "";
+
   // Конфигурация TURN-сервера из переменных окружения
-  const turnServerConfig = process.env.NEXT_PUBLIC_TURN_URL 
+  const turnServerConfig = process.env.NEXT_PUBLIC_TURN_URL
     ? {
         urls: process.env.NEXT_PUBLIC_TURN_URL,
-        username: process.env.NEXT_PUBLIC_TURN_USERNAME || '',
-        credential: process.env.NEXT_PUBLIC_TURN_PASSWORD || ''
+        username: process.env.NEXT_PUBLIC_TURN_USERNAME || "",
+        credential: process.env.NEXT_PUBLIC_TURN_PASSWORD || "",
       }
     : null;
 
@@ -42,85 +42,97 @@ export default function DashboardPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [activeGuild, setActiveGuild] = useState<Guild | null>(null);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
-  const [newMessage, setNewMessage] = useState('');
+  const [newMessage, setNewMessage] = useState("");
   const [gateway, setGateway] = useState<Gateway | null>(null);
   const [voiceUsers, setVoiceUsers] = useState<User[]>([]);
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
-  const [newChannelName, setNewChannelName] = useState('');
-  const [newChannelType, setNewChannelType] = useState<ChannelType>(ChannelType.TEXT);
+  const [newChannelName, setNewChannelName] = useState("");
+  const [newChannelType, setNewChannelType] = useState<ChannelType>(
+    ChannelType.TEXT,
+  );
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState("");
   const [voiceGateway, setVoiceGateway] = useState<VoiceGateway | null>(null);
   const voiceGatewayRef = useRef<VoiceGateway | null>(null);
   const [isInVoiceChannel, setIsInVoiceChannel] = useState(false);
-  const [voiceNotifications, setVoiceNotifications] = useState<{userId: string, action: 'join' | 'leave'}[]>([]);
-  const [voiceError, setVoiceError] = useState('');
-  
+  const [voiceNotifications, setVoiceNotifications] = useState<
+    { userId: string; action: "join" | "leave" }[]
+  >([]);
+  const [voiceError, setVoiceError] = useState("");
+
   // Голосовые состояния
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
-  const [activeSpeakers, setActiveSpeakers] = useState<Record<string, boolean>>({});
-  const [audioElements, setAudioElements] = useState<Record<string, HTMLAudioElement>>({});
+  const [remoteStreams, setRemoteStreams] = useState<
+    Record<string, MediaStream>
+  >({});
+  const [activeSpeakers, setActiveSpeakers] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [audioElements, setAudioElements] = useState<
+    Record<string, HTMLAudioElement>
+  >({});
   const [volumeLevel, setVolumeLevel] = useState(0);
-  const [peerConnections, setPeerConnections] = useState<Record<string, RTCPeerConnection>>({});
+  const [peerConnections, setPeerConnections] = useState<
+    Record<string, RTCPeerConnection>
+  >({});
 
   // Доступные аудио устройства и выбранные id
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [outputDevices, setOutputDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState('');
-  const [selectedOutputDeviceId, setSelectedOutputDeviceId] = useState('');
+  const [selectedInputDeviceId, setSelectedInputDeviceId] = useState("");
+  const [selectedOutputDeviceId, setSelectedOutputDeviceId] = useState("");
 
   // При смене устройства вывода обновляем все аудио элементы
   useEffect(() => {
-    Object.values(audioElements).forEach(a => {
+    Object.values(audioElements).forEach((a) => {
       if (selectedOutputDeviceId && (a as any).setSinkId) {
         (a as any).setSinkId(selectedOutputDeviceId).catch(() => {});
       }
     });
   }, [selectedOutputDeviceId, audioElements]);
-  
+
   // Состояния для приглашения пользователей
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
-  const [inviteUserId, setInviteUserId] = useState('');
-  const [inviteError, setInviteError] = useState('');
-  
+  const [inviteUserId, setInviteUserId] = useState("");
+  const [inviteError, setInviteError] = useState("");
+
   // Состояния для приглашения по ссылке
   const [isInviteLinkModalOpen, setIsInviteLinkModalOpen] = useState(false);
-  const [invitationLink, setInvitationLink] = useState('');
+  const [invitationLink, setInvitationLink] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const speakingCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Создаем карту пользователей для отображения никнеймов в чате
   const userMap = useMemo(() => {
     const map: Record<string, User> = {};
-    
+
     // Добавляем текущего пользователя
     if (user) {
       const normalizedId = normalizeUUID(user.id);
       map[normalizedId] = {
         ...user,
-        username: user.username || "You"
+        username: user.username || "You",
       };
     }
-    
+
     // Добавляем участников сервера
-    members.forEach(member => {
+    members.forEach((member) => {
       const normalizedId = normalizeUUID(member.id);
       map[normalizedId] = {
         ...member,
-        username: member.username || `User-${normalizedId.slice(0,4)}`
+        username: member.username || `User-${normalizedId.slice(0, 4)}`,
       };
     });
-    
+
     return map;
   }, [user, members]);
 
   // Автоскроллинг к последнему сообщению
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   useEffect(() => {
@@ -133,7 +145,7 @@ export default function DashboardPage() {
       const timer = setTimeout(() => {
         setVoiceNotifications([]);
       }, 3000);
-      
+
       return () => clearTimeout(timer);
     }
   }, [voiceNotifications]);
@@ -142,14 +154,14 @@ export default function DashboardPage() {
   useEffect(() => {
     const updateDevices = async () => {
       if (!navigator?.mediaDevices?.enumerateDevices) {
-        console.warn('MediaDevices API not available');
+        console.warn("MediaDevices API not available");
         return;
       }
 
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const inputs = devices.filter(d => d.kind === 'audioinput');
-        const outputs = devices.filter(d => d.kind === 'audiooutput');
+        const inputs = devices.filter((d) => d.kind === "audioinput");
+        const outputs = devices.filter((d) => d.kind === "audiooutput");
         setInputDevices(inputs);
         setOutputDevices(outputs);
         if (!selectedInputDeviceId && inputs[0]) {
@@ -159,16 +171,19 @@ export default function DashboardPage() {
           setSelectedOutputDeviceId(outputs[0].deviceId);
         }
       } catch (err) {
-        console.error('Failed to enumerate devices', err);
+        console.error("Failed to enumerate devices", err);
       }
     };
 
     updateDevices();
 
     if (navigator?.mediaDevices?.addEventListener) {
-      navigator.mediaDevices.addEventListener('devicechange', updateDevices);
+      navigator.mediaDevices.addEventListener("devicechange", updateDevices);
       return () => {
-        navigator.mediaDevices.removeEventListener('devicechange', updateDevices);
+        navigator.mediaDevices.removeEventListener(
+          "devicechange",
+          updateDevices,
+        );
       };
     }
 
@@ -186,19 +201,19 @@ export default function DashboardPage() {
       await loadGuilds();
       setLoading(false);
     } catch (error) {
-      console.error('Failed to load initial data:', error);
-      setErrorMessage('Failed to load data. Please try again.');
+      console.error("Failed to load initial data:", error);
+      setErrorMessage("Failed to load data. Please try again.");
       setLoading(false);
     }
   };
 
   const transformChannels = (channels: any[]): Channel[] => {
-    return channels.map(channel => ({
+    return channels.map((channel) => ({
       id: channel.id,
       guildId: channel.guildId,
       name: channel.name,
       type: channel.type,
-      createdAt: channel.createdAt
+      createdAt: channel.createdAt,
     }));
   };
 
@@ -207,30 +222,30 @@ export default function DashboardPage() {
     const fetchIceServers = async () => {
       try {
         const servers = await getIceServers();
-        
+
         // Добавляем TURN-сервер из переменных окружения
         if (turnServerConfig) {
           servers.push(turnServerConfig);
         }
-        
+
         // Добавляем fallback STUN-сервер
         if (servers.length === 0) {
-          servers.push({ urls: 'stun:stun.l.google.com:19302' });
+          servers.push({ urls: "stun:stun.l.google.com:19302" });
         }
-        
+
         setIceServers(servers);
       } catch (error) {
-        console.error('Failed to fetch ICE servers:', error);
-        
+        console.error("Failed to fetch ICE servers:", error);
+
         // Используем fallback, если не удалось получить серверы
-        const fallbackServers = turnServerConfig 
-          ? [turnServerConfig, { urls: 'stun:stun.l.google.com:19302' }] 
-          : [{ urls: 'stun:stun.l.google.com:19302' }];
-        
+        const fallbackServers = turnServerConfig
+          ? [turnServerConfig, { urls: "stun:stun.l.google.com:19302" }]
+          : [{ urls: "stun:stun.l.google.com:19302" }];
+
         setIceServers(fallbackServers);
       }
     };
-    
+
     fetchIceServers();
   }, []);
 
@@ -243,8 +258,8 @@ export default function DashboardPage() {
         setActiveGuild(response.data[0]);
       }
     } catch (error) {
-      console.error('Failed to load guilds:', error);
-      setErrorMessage('Failed to load servers.');
+      console.error("Failed to load guilds:", error);
+      setErrorMessage("Failed to load servers.");
     }
   }, []);
 
@@ -265,43 +280,49 @@ export default function DashboardPage() {
 
     try {
       setLoading(true);
-      
+
       const [channelsResponse, membersResponse] = await Promise.all([
         channelApi.getChannels(activeGuild.id),
-        guildApi.getMembers(activeGuild.id)
+        guildApi.getMembers(activeGuild.id),
       ]);
 
       // Преобразование каналов
       const transformedChannels = transformChannels(channelsResponse.data);
       setChannels(transformedChannels);
-      
+
       // Преобразование участников с нормализацией ID и загрузкой ника
       const transformedMembers = await Promise.all(
         membersResponse.data.map(async (member: any) => {
           const uid = normalizeUUID(member.userId || member.id);
           try {
             const res = await userApi.getById(uid);
-            return { id: uid, username: res.data.username || '', email: res.data.email || '' } as User;
+            return {
+              id: uid,
+              username: res.data.username || "",
+              email: res.data.email || "",
+            } as User;
           } catch (err) {
-            console.warn('Failed to fetch user info', uid, err);
-            return { id: uid, username: '', email: '' } as User;
+            console.warn("Failed to fetch user info", uid, err);
+            return { id: uid, username: "", email: "" } as User;
           }
-        })
+        }),
       );
 
       setMembers(transformedMembers);
-      
+
       if (transformedChannels.length > 0) {
-        const textChannel = transformedChannels.find(c => c.type === ChannelType.TEXT);
+        const textChannel = transformedChannels.find(
+          (c) => c.type === ChannelType.TEXT,
+        );
         setActiveChannel(textChannel || transformedChannels[0]);
       } else {
         setActiveChannel(null);
       }
-      
+
       setLoading(false);
     } catch (error) {
-      console.error('Failed to load data:', error);
-      setErrorMessage('Failed to load channels and members.');
+      console.error("Failed to load data:", error);
+      setErrorMessage("Failed to load channels and members.");
       setLoading(false);
     }
   }, [activeGuild]);
@@ -309,34 +330,35 @@ export default function DashboardPage() {
   // Загрузка сообщений для текстового канала
   const loadMessages = useCallback(async (channelId: string) => {
     if (!channelId) return;
-    
+
     try {
       const response = await getChannelMessages(channelId, 50);
-      
+
       // Преобразование сообщений с нормализацией ID
-      const transformedMessages = response.map(msg => ({
+      const transformedMessages = response.map((msg) => ({
         ...msg,
         channelId: normalizeUUID(msg.channelId),
         messageId: normalizeUUID(msg.messageId),
         senderId: normalizeUUID(msg.senderId),
       }));
-      
+
       setMessages(transformedMessages);
     } catch (error) {
-      console.error('Failed to load messages:', error);
+      console.error("Failed to load messages:", error);
     }
   }, []);
 
   // Обработка WebSocket сообщений
   useEffect(() => {
-    if (!activeChannel || activeChannel.type !== ChannelType.TEXT || !token) return;
+    if (!activeChannel || activeChannel.type !== ChannelType.TEXT || !token)
+      return;
 
     setMessages([]); // Очистка сообщений при переключении канала
 
     // Закрытие предыдущего WebSocket-соединения
     if (gateway) {
-        gateway.disconnect();
-        setGateway(null);
+      gateway.disconnect();
+      setGateway(null);
     }
 
     // Инициализация нового WebSocket-соединения
@@ -346,12 +368,12 @@ export default function DashboardPage() {
 
     // Подписка на сообщения в реальном времени
     const handleMessage = (msg: Message) => {
-        // Нормализуем senderId перед добавлением
-        const normalizedMsg = {
-          ...msg,
-          senderId: normalizeUUID(msg.senderId)
-        };
-        setMessages(prev => [...prev, normalizedMsg]);
+      // Нормализуем senderId перед добавлением
+      const normalizedMsg = {
+        ...msg,
+        senderId: normalizeUUID(msg.senderId),
+      };
+      setMessages((prev) => [...prev, normalizedMsg]);
     };
 
     newGateway.onMessage(handleMessage);
@@ -361,23 +383,23 @@ export default function DashboardPage() {
 
     // Очистка при размонтировании
     return () => {
-        newGateway.offMessage(handleMessage);
-        newGateway.disconnect();
+      newGateway.offMessage(handleMessage);
+      newGateway.disconnect();
     };
   }, [activeChannel, token, loadMessages]);
 
   // Создание нового сервера
   const createNewGuild = async () => {
-    const guildName = prompt('Enter server name:');
+    const guildName = prompt("Enter server name:");
     if (!guildName) return;
-    
+
     try {
       const response = await guildApi.createGuild({ name: guildName });
-      setGuilds(prev => [...prev, response.data]);
+      setGuilds((prev) => [...prev, response.data]);
       setActiveGuild(response.data);
     } catch (error) {
-      console.error('Failed to create server:', error);
-      alert('Failed to create server');
+      console.error("Failed to create server:", error);
+      alert("Failed to create server");
     }
   };
   // Инициализация голосового соединения
@@ -392,7 +414,9 @@ export default function DashboardPage() {
       if (!stream) {
         const constraints: MediaStreamConstraints = {
           audio: {
-            deviceId: selectedInputDeviceId ? { exact: selectedInputDeviceId } : undefined,
+            deviceId: selectedInputDeviceId
+              ? { exact: selectedInputDeviceId }
+              : undefined,
             noiseSuppression: true,
             echoCancellation: true,
           },
@@ -400,7 +424,7 @@ export default function DashboardPage() {
         };
 
         if (!navigator?.mediaDevices?.getUserMedia) {
-          throw new Error('MediaDevices API not available');
+          throw new Error("MediaDevices API not available");
         }
 
         stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -411,17 +435,17 @@ export default function DashboardPage() {
       if (!speakingCheckIntervalRef.current) {
         startSpeakingDetection(stream);
       }
-      
+
       // Создаем пиринговые соединения с другими участниками
-      voiceUsers.forEach(user => {
+      voiceUsers.forEach((user) => {
         const userId = normalizeUUID(user.id);
         if (userId !== currentUserId) {
           createPeerConnection(userId, stream);
         }
       });
     } catch (error) {
-      console.error('Error accessing microphone:', error);
-      setVoiceError('Microphone access denied');
+      console.error("Error accessing microphone:", error);
+      setVoiceError("Microphone access denied");
     }
   };
 
@@ -430,40 +454,40 @@ export default function DashboardPage() {
     const config: RTCConfiguration = {
       iceServers: [
         ...iceServers,
-        { urls: 'stun:stun.l.google.com:19302' } // Fallback STUN
-      ]
+        { urls: "stun:stun.l.google.com:19302" }, // Fallback STUN
+      ],
     };
-    
+
     const pc = new RTCPeerConnection(config);
-    
+
     // Добавляем локальный поток
     const audioStream = stream || localStream;
     if (audioStream) {
-      audioStream.getTracks().forEach(track => {
+      audioStream.getTracks().forEach((track) => {
         pc.addTrack(track, audioStream);
       });
     }
-    
+
     // Обработка ICE кандидатов
     pc.onicecandidate = (event) => {
       const gw = voiceGatewayRef.current;
       if (event.candidate && gw) {
         gw.send({
-          type: 'candidate',
+          type: "candidate",
           target: userId,
-          payload: { candidate: event.candidate }
+          payload: { candidate: event.candidate },
         });
       }
     };
-    
+
     // Получение удаленного потока
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0];
-      setRemoteStreams(prev => ({
+      setRemoteStreams((prev) => ({
         ...prev,
-        [userId]: remoteStream
+        [userId]: remoteStream,
       }));
-      
+
       // Создаем аудио элемент для воспроизведения
       const audio = new Audio();
       audio.srcObject = remoteStream;
@@ -472,37 +496,37 @@ export default function DashboardPage() {
       if (selectedOutputDeviceId && (audio as any).setSinkId) {
         (audio as any).setSinkId(selectedOutputDeviceId).catch(() => {});
       }
-      audio.play().catch(err => console.error('audio play error', err));
-      
-      setAudioElements(prev => ({
+      audio.play().catch((err) => console.error("audio play error", err));
+
+      setAudioElements((prev) => ({
         ...prev,
-        [userId]: audio
+        [userId]: audio,
       }));
     };
-    
+
     // Создаем предложение (offer)
     pc.createOffer()
-      .then(offer => pc.setLocalDescription(offer))
+      .then((offer) => pc.setLocalDescription(offer))
       .then(() => {
         const gw = voiceGatewayRef.current;
         if (gw && pc.localDescription) {
           gw.send({
-            type: 'offer',
+            type: "offer",
             target: userId,
-            payload: { offer: pc.localDescription }
+            payload: { offer: pc.localDescription },
           });
         }
       })
-      .catch(error => {
-        console.error('Error creating offer:', error);
+      .catch((error) => {
+        console.error("Error creating offer:", error);
       });
-    
+
     // Сохраняем соединение
-    setPeerConnections(prev => ({
+    setPeerConnections((prev) => ({
       ...prev,
-      [userId]: pc
+      [userId]: pc,
     }));
-    
+
     return pc;
   };
 
@@ -512,262 +536,263 @@ export default function DashboardPage() {
     if (!pc) {
       pc = createPeerConnection(userId);
     }
-    
+
     if (!pc) return;
-    
+
     switch (data.type) {
-      case 'offer':
+      case "offer":
         pc.setRemoteDescription(new RTCSessionDescription(data.offer))
           .then(() => pc.createAnswer())
-          .then(answer => pc.setLocalDescription(answer))
+          .then((answer) => pc.setLocalDescription(answer))
           .then(() => {
             const gw = voiceGatewayRef.current;
             if (gw && pc.localDescription) {
               gw.send({
-                type: 'answer',
+                type: "answer",
                 target: userId,
-                payload: { answer: pc.localDescription }
+                payload: { answer: pc.localDescription },
               });
             }
           })
-          .catch(error => {
-            console.error('Error handling offer:', error);
+          .catch((error) => {
+            console.error("Error handling offer:", error);
           });
         break;
-        
-      case 'answer':
-        pc.setRemoteDescription(new RTCSessionDescription(data.answer))
-          .catch(error => {
-            console.error('Error setting remote description:', error);
-          });
+
+      case "answer":
+        pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(
+          (error) => {
+            console.error("Error setting remote description:", error);
+          },
+        );
         break;
-        
-      case 'candidate':
-        pc.addIceCandidate(new RTCIceCandidate(data.candidate))
-          .catch(error => {
-            console.error('Error adding ICE candidate:', error);
-          });
+
+      case "candidate":
+        pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(
+          (error) => {
+            console.error("Error adding ICE candidate:", error);
+          },
+        );
         break;
     }
   };
   // Вход в голосовой канал
-const joinVoiceChannel = useCallback((channelId: string) => {
-  if (!token) return;
+  const joinVoiceChannel = useCallback(
+    (channelId: string) => {
+      if (!token) return;
 
-  // 1) Отключаемся от предыдущего канала, если он есть
-  if (voiceGatewayRef.current) {
-    voiceGatewayRef.current.disconnect();
-    setVoiceGateway(null);
-    voiceGatewayRef.current = null;
-    setIsInVoiceChannel(false);
-    setVoiceUsers([]);
-    stopSpeakingDetection();
-  }
+      // 1) Отключаемся от предыдущего канала, если он есть
+      if (voiceGatewayRef.current) {
+        voiceGatewayRef.current.disconnect();
+        setVoiceGateway(null);
+        voiceGatewayRef.current = null;
+        setIsInVoiceChannel(false);
+        setVoiceUsers([]);
+        stopSpeakingDetection();
+      }
 
-  // 2) Создаём новый голосовой шлюз и сохраняем его в стейте
-  const gateway = new VoiceGateway(token, channelId);
-  setVoiceGateway(gateway);
-  voiceGatewayRef.current = gateway;
+      // 2) Создаём новый голосовой шлюз и сохраняем его в стейте
+      const gateway = new VoiceGateway(token, channelId);
+      setVoiceGateway(gateway);
+      voiceGatewayRef.current = gateway;
 
-  // 3) Универсальный обработчик событий от VoiceGateway
+      // 3) Универсальный обработчик событий от VoiceGateway
 
-  // Обработчик всех входящих событий от сервера
-  const onEvent = (event: VoiceEvent) => {
-  const rawUserId = event.userId ?? '';
-  const peerId    = normalizeUUID(rawUserId);
+      // Обработчик всех входящих событий от сервера
+      const onEvent = (event: VoiceEvent) => {
+        const rawUserId = event.userId ?? "";
+        const peerId = normalizeUUID(rawUserId);
 
-  switch (event.type) {
-    case 'user-list': {
-      const ids = Array.isArray(event.data?.users)
-        ? (event.data.users as string[])
-        : [];
-      const normalized = ids.map(id => normalizeUUID(id));
-      const others = normalized.filter(id => id !== currentUserId);
+        switch (event.type) {
+          case "user-list": {
+            const ids = Array.isArray(event.data?.users)
+              ? (event.data.users as string[])
+              : [];
+            const normalized = ids.map((id) => normalizeUUID(id));
+            const others = normalized.filter((id) => id !== currentUserId);
 
-      const newUsers = others.map(id => {
-        const info = userMap[id];
-        return {
-          id,
-          username: info?.username || `User-${id.slice(0, 4)}`,
-          email: info?.email || ''
-        } as User;
-      });
+            const newUsers = others.map((id) => {
+              const info = userMap[id];
+              return {
+                id,
+                username: info?.username || `User-${id.slice(0, 4)}`,
+                email: info?.email || "",
+              } as User;
+            });
 
-      setVoiceUsers(newUsers);
+            setVoiceUsers(newUsers);
 
-      if (localStream) {
-        others.forEach(id => {
-          if (!peerConnections[id]) {
-            createPeerConnection(id, localStream);
+            if (localStream) {
+              others.forEach((id) => {
+                if (!peerConnections[id]) {
+                  createPeerConnection(id, localStream);
+                }
+              });
+            }
+            break;
           }
-        });
-      }
-      break;
-    }
-    case 'auth-response':
-      if (event.success) {
-        initVoiceConnection();
-      } else {
-        setVoiceError(event.error || 'Voice authentication failed');
-      }
-      break;
+          case "auth-response":
+            if (event.success) {
+              initVoiceConnection();
+            } else {
+              setVoiceError(event.error || "Voice authentication failed");
+            }
+            break;
 
-    case 'join':
-      if (
-        peerId &&
-        peerId !== currentUserId &&
-        !voiceUsers.some(u => normalizeUUID(u.id) === peerId)
-      ) {
-        const info = userMap[peerId];
-        setVoiceUsers(prev => [
-          ...prev,
-          {
-            id: peerId,
-            username: info?.username || `User-${peerId.slice(0, 4)}`,
-            email: info?.email || ''
-          } as User
-        ]);
-        if (localStream) {
-          createPeerConnection(peerId, localStream);
+          case "join":
+            if (
+              peerId &&
+              peerId !== currentUserId &&
+              !voiceUsers.some((u) => normalizeUUID(u.id) === peerId)
+            ) {
+              const info = userMap[peerId];
+              setVoiceUsers((prev) => [
+                ...prev,
+                {
+                  id: peerId,
+                  username: info?.username || `User-${peerId.slice(0, 4)}`,
+                  email: info?.email || "",
+                } as User,
+              ]);
+              if (localStream) {
+                createPeerConnection(peerId, localStream);
+              }
+            }
+            if (peerId && peerId !== currentUserId) {
+              setVoiceNotifications((prev) => [
+                ...prev,
+                { userId: peerId, action: "join" },
+              ]);
+            }
+            break;
+
+          case "leave":
+            // 1) удаляем из списка пользователей
+            setVoiceUsers((prev) =>
+              prev.filter((u) => normalizeUUID(u.id) !== peerId),
+            );
+
+            // 2) закрываем/удаляем RTCPeerConnection
+            peerConnections[peerId]?.close();
+            setPeerConnections((pc) => {
+              const copy = { ...pc };
+              delete copy[peerId];
+              return copy;
+            });
+
+            // 3) удаляем удалённый медиапоток
+            setRemoteStreams((rs) => {
+              const copy = { ...rs };
+              delete copy[peerId];
+              return copy;
+            });
+
+            // 4) удаляем индикатор говорящего
+            setActiveSpeakers((prev) => {
+              // prev имеет тип Record<string, boolean>
+              const newSpeakers = { ...prev }; // тоже Record<string, boolean>
+              delete newSpeakers[peerId]; // TS не "понимает", что там потенциально может быть undefined
+              return newSpeakers; // возвращается Record<string, boolean>
+            });
+
+            setVoiceNotifications((prev) => [
+              ...prev,
+              { userId: peerId, action: "leave" },
+            ]);
+            break;
+
+          case "signal":
+            if (event.data) {
+              handleSignal(peerId, event.data);
+            }
+            break;
+
+          case "user-speaking":
+            if (typeof event.isSpeaking === "boolean") {
+              setActiveSpeakers((prev) => ({
+                ...prev,
+                [peerId]: event.isSpeaking as boolean,
+              }));
+            }
+            break;
         }
-      }
-      if (peerId && peerId !== currentUserId) {
-        setVoiceNotifications(prev => [
-          ...prev,
-          { userId: peerId, action: 'join' }
-        ]);
-      }
-      break;
+      };
 
-    case 'leave':
-      // 1) удаляем из списка пользователей
-      setVoiceUsers(prev =>
-        prev.filter(u => normalizeUUID(u.id) !== peerId)
-      );
+      // 4) Навешиваем обработчик и подключаемся
+      gateway.onEvent(onEvent);
+      gateway.connect();
+      setIsInVoiceChannel(true);
 
-      // 2) закрываем/удаляем RTCPeerConnection
-      peerConnections[peerId]?.close();
-      setPeerConnections(pc => {
-        const copy = { ...pc };
-        delete copy[peerId];
-        return copy;
-      });
-
-      // 3) удаляем удалённый медиапоток
-      setRemoteStreams(rs => {
-        const copy = { ...rs };
-        delete copy[peerId];
-        return copy;
-      });
-
-      // 4) удаляем индикатор говорящего
-      setActiveSpeakers(prev => {
-        // prev имеет тип Record<string, boolean>
-        const newSpeakers = { ...prev };   // тоже Record<string, boolean>
-        delete newSpeakers[peerId];        // TS не "понимает", что там потенциально может быть undefined
-        return newSpeakers;                // возвращается Record<string, boolean>
-      });
-
-      setVoiceNotifications(prev => [
-        ...prev,
-        { userId: peerId, action: 'leave' }
-      ]);
-      break;
-
-    case 'signal':
-      if (event.data) {
-        handleSignal(peerId, event.data);
-      }
-      break;
-
-    case 'user-speaking':
-      if (typeof event.isSpeaking === 'boolean') {
-        setActiveSpeakers(prev => ({
-          ...prev,
-          [peerId]: event.isSpeaking as boolean
-        }));
-      }
-      break;
-  }
-};
-
-
-  // 4) Навешиваем обработчик и подключаемся
-  gateway.onEvent(onEvent);
-  gateway.connect();
-  setIsInVoiceChannel(true);
-
-  // 5) При размонтировании — отключаемся
-  return () => {
-    gateway.offEvent(onEvent);
-    gateway.disconnect();
-  };
-}, [
-  token,
-  voiceGateway,
-  voiceUsers,
-  localStream,
-  peerConnections,
-  currentUserId,
-  initVoiceConnection,
-  createPeerConnection,
-  handleSignal,
-  userMap,
-  selectedOutputDeviceId,
-  selectedInputDeviceId
-]);
-
-
-
-
+      // 5) При размонтировании — отключаемся
+      return () => {
+        gateway.offEvent(onEvent);
+        gateway.disconnect();
+      };
+    },
+    [
+      token,
+      voiceGateway,
+      voiceUsers,
+      localStream,
+      peerConnections,
+      currentUserId,
+      initVoiceConnection,
+      createPeerConnection,
+      handleSignal,
+      userMap,
+      selectedOutputDeviceId,
+      selectedInputDeviceId,
+    ],
+  );
 
   // Запуск обнаружения речи
   const startSpeakingDetection = (stream: MediaStream) => {
     try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContext =
+        window.AudioContext || (window as any).webkitAudioContext;
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
-      
+
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyserRef.current = analyser;
-      
+
       source.connect(analyser);
       analyser.fftSize = 256;
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
-      
+
       let lastSpeakingState = false;
-      const speakingThreshold = -45; // Порог громкости (дБ)
-      
+      const speakingThreshold = -60; // Порог громкости (дБ)
+
       speakingCheckIntervalRef.current = setInterval(() => {
         if (!analyserRef.current) return;
-        
+
         analyserRef.current.getByteFrequencyData(dataArray);
         let sum = 0;
-        
+
         for (let i = 0; i < bufferLength; i++) {
           sum += dataArray[i];
         }
-        
+
         const average = sum / bufferLength;
         const decibels = 20 * Math.log10(average / 255);
         const isSpeaking = decibels > speakingThreshold;
-        
+
         // Обновляем уровень громкости для визуализации
         setVolumeLevel(Math.min(100, Math.round((average / 255) * 100)));
-        
+
         // Отправляем событие только при изменении состояния
         if (isSpeaking !== lastSpeakingState) {
           lastSpeakingState = isSpeaking;
           voiceGatewayRef.current?.send({
-            type: 'user-speaking',
-            payload: { isSpeaking }
+            type: "user-speaking",
+            payload: { isSpeaking },
           });
         }
       }, 200); // Проверка каждые 200 мс
     } catch (error) {
-      console.error('Error starting speaking detection:', error);
+      console.error("Error starting speaking detection:", error);
     }
   };
 
@@ -777,12 +802,12 @@ const joinVoiceChannel = useCallback((channelId: string) => {
       clearInterval(speakingCheckIntervalRef.current);
       speakingCheckIntervalRef.current = null;
     }
-    
+
     if (audioContextRef.current) {
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
-    
+
     analyserRef.current = null;
   };
 
@@ -793,18 +818,18 @@ const joinVoiceChannel = useCallback((channelId: string) => {
       setVoiceGateway(null);
       voiceGatewayRef.current = null;
     }
-    
+
     if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
+      localStream.getTracks().forEach((track) => track.stop());
       setLocalStream(null);
     }
-    
+
     stopSpeakingDetection();
-    
+
     // Закрываем все пиринговые соединения
-    Object.values(peerConnections).forEach(pc => pc.close());
+    Object.values(peerConnections).forEach((pc) => pc.close());
     setPeerConnections({});
-    
+
     setVoiceUsers([]);
     setRemoteStreams({});
     setAudioElements({});
@@ -816,71 +841,73 @@ const joinVoiceChannel = useCallback((channelId: string) => {
   // Отправка сообщения
   const sendMessage = () => {
     if (!newMessage.trim() || !gateway || !activeChannel) return;
-    
+
     gateway.sendMessage(newMessage);
-    setNewMessage('');
+    setNewMessage("");
   };
 
   // Выход из аккаунта
   const handleLogout = () => {
     clearAuth();
-    router.push('/login');
+    router.push("/login");
   };
 
   // Создание нового канала
   const createNewChannel = async () => {
     if (!activeGuild || !newChannelName.trim()) return;
-    
+
     try {
       await channelApi.createChannel(activeGuild.id, {
         name: newChannelName,
-        type: newChannelType
+        type: newChannelType,
       });
-      
+
       // Перезагружаем каналы после создания
       await loadChannelsAndMembers();
-      
+
       // Сброс формы
-      setNewChannelName('');
+      setNewChannelName("");
       setNewChannelType(ChannelType.TEXT);
       setIsCreatingChannel(false);
     } catch (error) {
-      console.error('Failed to create channel:', error);
-      alert('Failed to create channel');
+      console.error("Failed to create channel:", error);
+      alert("Failed to create channel");
     }
   };
 
   // Приглашение пользователя на сервер по ID
   const inviteUser = async () => {
     if (!activeGuild || !inviteUserId.trim()) return;
-    
+
     try {
       // Отправляем приглашение на сервер
       await guildApi.inviteMember(activeGuild.id, inviteUserId);
-      
+
       // Обновляем список участников
       const membersResponse = await guildApi.getMembers(activeGuild.id);
-      const transformedMembers = membersResponse.data.map(member => ({
+      const transformedMembers = membersResponse.data.map((member) => ({
         id: normalizeUUID(member.id),
         username: member.username || "",
-        email: member.email || ""
+        email: member.email || "",
       }));
       setMembers(transformedMembers);
-      
+
       // Сброс формы
       setIsInviteModalOpen(false);
-      setInviteUserId('');
-      setInviteError('');
+      setInviteUserId("");
+      setInviteError("");
     } catch (error) {
-      console.error('Failed to invite user:', error);
-      setInviteError('Failed to invite user. Please check the user ID and try again.');
+      console.error("Failed to invite user:", error);
+      setInviteError(
+        "Failed to invite user. Please check the user ID and try again.",
+      );
     }
   };
 
   // Генерация ссылки для приглашения
   const createInvitationLink = async () => {
     if (!activeGuild) return;
-    
+
     try {
       const response = await guildApi.createInvitation(activeGuild.id);
       const code = response.data.code;
@@ -888,23 +915,23 @@ const joinVoiceChannel = useCallback((channelId: string) => {
       setInvitationLink(link);
       setIsInviteLinkModalOpen(true);
     } catch (error) {
-      console.error('Failed to create invitation', error);
-      setErrorMessage('Failed to create invitation link');
+      console.error("Failed to create invitation", error);
+      setErrorMessage("Failed to create invitation link");
     }
   };
 
   // Рендер каналов
   const renderChannels = (type: ChannelType) => {
-    const filteredChannels = channels.filter(c => c.type === type);
-    
+    const filteredChannels = channels.filter((c) => c.type === type);
+
     return (
       <>
         <div className="flex justify-between items-center">
           <div className="text-gray-400 text-sm font-semibold px-2 py-1">
-            {type === ChannelType.TEXT ? 'TEXT CHANNELS' : 'VOICE CHANNELS'}
+            {type === ChannelType.TEXT ? "TEXT CHANNELS" : "VOICE CHANNELS"}
           </div>
           {activeGuild && (
-            <button 
+            <button
               onClick={() => {
                 setIsCreatingChannel(true);
                 setNewChannelType(type);
@@ -916,24 +943,27 @@ const joinVoiceChannel = useCallback((channelId: string) => {
             </button>
           )}
         </div>
-        
+
         {filteredChannels.length > 0 ? (
-          filteredChannels.map(channel => (
+          filteredChannels.map((channel) => (
             <div
               key={channel.id}
               className={`px-3 py-1 rounded cursor-pointer flex items-center ${
                 activeChannel?.id === channel.id
-                  ? 'bg-gray-700'
-                  : 'hover:bg-gray-700'
+                  ? "bg-gray-700"
+                  : "hover:bg-gray-700"
               }`}
               onClick={() => {
                 setActiveChannel(channel);
-                
+
                 // Выход из голосового канала при переходе в текстовый
-                if (channel.type !== ChannelType.VOICE && voiceGatewayRef.current) {
+                if (
+                  channel.type !== ChannelType.VOICE &&
+                  voiceGatewayRef.current
+                ) {
                   leaveVoiceChannel();
                 }
-                
+
                 // Вход в голосовой канал
                 if (channel.type === ChannelType.VOICE) {
                   joinVoiceChannel(channel.id);
@@ -969,7 +999,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
     return (
       <div className="flex h-screen bg-gray-800 text-white items-center justify-center">
         <div className="text-xl text-red-500">{errorMessage}</div>
-        <button 
+        <button
           onClick={loadInitialData}
           className="ml-4 px-4 py-2 bg-indigo-600 rounded hover:bg-indigo-700"
         >
@@ -983,21 +1013,21 @@ const joinVoiceChannel = useCallback((channelId: string) => {
     <div className="flex h-screen bg-gray-800 text-white overflow-hidden">
       {/* Панель серверов */}
       <div className="w-16 bg-gray-900 flex flex-col items-center py-3 space-y-4">
-        {guilds.map(guild => (
-          <div 
+        {guilds.map((guild) => (
+          <div
             key={guild.id}
             className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all ${
-              activeGuild?.id === guild.id 
-                ? 'bg-indigo-600 rounded-2xl' 
-                : 'bg-gray-700 hover:bg-indigo-500 hover:rounded-2xl'
+              activeGuild?.id === guild.id
+                ? "bg-indigo-600 rounded-2xl"
+                : "bg-gray-700 hover:bg-indigo-500 hover:rounded-2xl"
             }`}
             onClick={() => setActiveGuild(guild)}
           >
             {guild.name.charAt(0)}
           </div>
         ))}
-        
-        <button 
+
+        <button
           className="w-12 h-12 rounded-full bg-green-600 flex items-center justify-center hover:bg-green-500"
           onClick={createNewGuild}
         >
@@ -1008,33 +1038,53 @@ const joinVoiceChannel = useCallback((channelId: string) => {
       {/* Панель каналов */}
       <div className="w-60 bg-gray-800 flex flex-col">
         <div className="p-4 border-b border-gray-700 font-bold flex justify-between items-center">
-          <span>{activeGuild?.name || 'Select Server'}</span>
+          <span>{activeGuild?.name || "Select Server"}</span>
           {activeGuild && (
             <div className="flex space-x-2">
               {/* Кнопка генерации ссылки приглашения */}
-              <button 
+              <button
                 onClick={createInvitationLink}
                 className="text-gray-400 hover:text-white"
                 title="Generate Invite Link"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                  />
                 </svg>
               </button>
-              
+
               {/* Кнопка приглашения по ID */}
-              <button 
+              <button
                 onClick={() => setIsInviteModalOpen(true)}
                 className="text-gray-400 hover:text-white"
                 title="Invite User by ID"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+                  />
                 </svg>
               </button>
-              
+
               {/* Кнопка создания канала */}
-              <button 
+              <button
                 onClick={() => setIsCreatingChannel(true)}
                 className="text-gray-400 hover:text-white text-xl"
                 title="Create Channel"
@@ -1044,7 +1094,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
             </div>
           )}
         </div>
-        
+
         <div className="flex-1 overflow-y-auto p-2">
           {/* Форма создания канала */}
           {isCreatingChannel && (
@@ -1052,17 +1102,17 @@ const joinVoiceChannel = useCallback((channelId: string) => {
               <input
                 type="text"
                 value={newChannelName}
-                onChange={e => setNewChannelName(e.target.value)}
+                onChange={(e) => setNewChannelName(e.target.value)}
                 placeholder="Channel name"
                 className="w-full p-2 mb-2 bg-gray-800 rounded text-white"
               />
-              
+
               <div className="flex mb-2">
                 <button
                   className={`flex-1 mr-1 p-1 rounded ${
-                    newChannelType === ChannelType.TEXT 
-                      ? 'bg-indigo-600' 
-                      : 'bg-gray-700 hover:bg-gray-600'
+                    newChannelType === ChannelType.TEXT
+                      ? "bg-indigo-600"
+                      : "bg-gray-700 hover:bg-gray-600"
                   }`}
                   onClick={() => setNewChannelType(ChannelType.TEXT)}
                 >
@@ -1070,16 +1120,16 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                 </button>
                 <button
                   className={`flex-1 ml-1 p-1 rounded ${
-                    newChannelType === ChannelType.VOICE 
-                      ? 'bg-indigo-600' 
-                      : 'bg-gray-700 hover:bg-gray-600'
+                    newChannelType === ChannelType.VOICE
+                      ? "bg-indigo-600"
+                      : "bg-gray-700 hover:bg-gray-600"
                   }`}
                   onClick={() => setNewChannelType(ChannelType.VOICE)}
                 >
                   Voice
                 </button>
               </div>
-              
+
               <div className="flex">
                 <button
                   className="flex-1 mr-1 p-1 bg-green-600 hover:bg-green-500 rounded"
@@ -1098,29 +1148,39 @@ const joinVoiceChannel = useCallback((channelId: string) => {
           )}
 
           {renderChannels(ChannelType.TEXT)}
-          
-          <div className="mt-4">
-            {renderChannels(ChannelType.VOICE)}
-          </div>
+
+          <div className="mt-4">{renderChannels(ChannelType.VOICE)}</div>
         </div>
-        
+
         <div className="p-3 bg-gray-900 flex items-center">
           <div className="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center mr-2">
-            {user?.username?.charAt(0) || 'U'}
+            {user?.username?.charAt(0) || "U"}
           </div>
           <div className="flex-1">
-            <div className="font-medium">{user?.username || 'Unknown User'}</div>
+            <div className="font-medium">
+              {user?.username || "Unknown User"}
+            </div>
             <div className="text-xs text-gray-400">
-              #{user?.id?.slice(0, 4) || '0000'}
+              #{user?.id?.slice(0, 4) || "0000"}
             </div>
           </div>
-          <button 
+          <button
             onClick={handleLogout}
             className="text-gray-400 hover:text-white"
             title="Logout"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
             </svg>
           </button>
         </div>
@@ -1132,10 +1192,10 @@ const joinVoiceChannel = useCallback((channelId: string) => {
           <>
             <div className="p-4 border-b border-gray-600 flex items-center">
               <span className="mr-2">
-                {activeChannel.type === ChannelType.TEXT ? '#' : '🔊'}
+                {activeChannel.type === ChannelType.TEXT ? "#" : "🔊"}
               </span>
               <span className="font-bold">{activeChannel.name}</span>
-              
+
               {activeChannel.type === ChannelType.VOICE && isInVoiceChannel && (
                 <div className="ml-4 flex items-center">
                   <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse mr-2"></div>
@@ -1143,22 +1203,25 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                 </div>
               )}
             </div>
-            
+
             {activeChannel.type === ChannelType.TEXT ? (
               <div className="flex-1 flex flex-col min-h-0">
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {messages.map(message => {
+                  {messages.map((message) => {
                     // Нормализуем ID отправителя
                     const senderId = normalizeUUID(message.senderId);
-                    
+
                     // Находим отправителя в карте пользователей
                     const sender = userMap[senderId] || {
-                      username: `User-${senderId.slice(0,4)}`,
-                      id: senderId
+                      username: `User-${senderId.slice(0, 4)}`,
+                      id: senderId,
                     };
-                    
+
                     return (
-                      <div key={message.messageId} className="flex hover:bg-gray-800 p-2 rounded">
+                      <div
+                        key={message.messageId}
+                        className="flex hover:bg-gray-800 p-2 rounded"
+                      >
                         <div className="w-10 h-10 bg-indigo-500 rounded-full flex items-center justify-center mr-3">
                           {sender.username.charAt(0)}
                         </div>
@@ -1176,23 +1239,33 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                   })}
                   <div ref={messagesEndRef} />
                 </div>
-                
+
                 <div className="p-4">
                   <div className="flex items-center bg-gray-800 rounded-lg px-4">
                     <input
                       type="text"
                       value={newMessage}
-                      onChange={e => setNewMessage(e.target.value)}
+                      onChange={(e) => setNewMessage(e.target.value)}
                       placeholder={`Message #${activeChannel.name}`}
                       className="flex-1 bg-transparent py-3 outline-none"
-                      onKeyPress={e => e.key === 'Enter' && sendMessage()}
+                      onKeyPress={(e) => e.key === "Enter" && sendMessage()}
                     />
-                    <button 
+                    <button
                       onClick={sendMessage}
                       className="text-gray-400 hover:text-white"
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M13 5l7 7-7 7M5 5l7 7-7 7"
+                        />
                       </svg>
                     </button>
                   </div>
@@ -1200,27 +1273,37 @@ const joinVoiceChannel = useCallback((channelId: string) => {
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center p-8">
-                <div className="text-2xl font-bold mb-4">🔊 {activeChannel.name}</div>
-                
+                <div className="text-2xl font-bold mb-4">
+                  🔊 {activeChannel.name}
+                </div>
+
                 {!isInVoiceChannel ? (
                   <>
                     <div className="mb-4 flex space-x-2">
                       <select
                         value={selectedInputDeviceId}
-                        onChange={(e) => setSelectedInputDeviceId(e.target.value)}
+                        onChange={(e) =>
+                          setSelectedInputDeviceId(e.target.value)
+                        }
                         className="bg-gray-800 rounded p-2 text-sm"
                       >
-                        {inputDevices.map(dev => (
-                          <option key={dev.deviceId} value={dev.deviceId}>{dev.label || dev.deviceId}</option>
+                        {inputDevices.map((dev) => (
+                          <option key={dev.deviceId} value={dev.deviceId}>
+                            {dev.label || dev.deviceId}
+                          </option>
                         ))}
                       </select>
                       <select
                         value={selectedOutputDeviceId}
-                        onChange={(e) => setSelectedOutputDeviceId(e.target.value)}
+                        onChange={(e) =>
+                          setSelectedOutputDeviceId(e.target.value)
+                        }
                         className="bg-gray-800 rounded p-2 text-sm"
                       >
-                        {outputDevices.map(dev => (
-                          <option key={dev.deviceId} value={dev.deviceId}>{dev.label || dev.deviceId}</option>
+                        {outputDevices.map((dev) => (
+                          <option key={dev.deviceId} value={dev.deviceId}>
+                            {dev.label || dev.deviceId}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1240,71 +1323,75 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                           <div className="absolute top-0 right-0 w-4 h-4 bg-green-500 rounded-full animate-pulse"></div>
                         )}
                         <div className="w-16 h-16 bg-indigo-500 rounded-full flex items-center justify-center mb-2">
-                          {user?.username?.charAt(0) || 'U'}
+                          {user?.username?.charAt(0) || "U"}
                         </div>
                         <div className="font-bold">You</div>
                         <div className="text-xs text-gray-400">
-                          {activeSpeakers[currentUserId] ? 'Speaking...' : 'Silent'}
+                          {activeSpeakers[currentUserId]
+                            ? "Speaking..."
+                            : "Silent"}
                         </div>
-                        
+
                         {/* Визуализатор громкости */}
                         <div className="mt-2 w-full bg-gray-700 rounded-full h-2">
-                          <div 
+                          <div
                             className="bg-green-500 h-2 rounded-full transition-all duration-100"
                             style={{ width: `${volumeLevel}%` }}
                           ></div>
                         </div>
-                        
+
                         {/* Анимация волны для активного говорящего */}
                         {activeSpeakers[currentUserId] && (
                           <div className="absolute -bottom-2 w-full flex justify-center space-x-1">
                             {[1, 2, 3, 4, 3, 2].map((height, i) => (
-                              <div 
-                                key={i} 
+                              <div
+                                key={i}
                                 className="w-1 bg-green-400 rounded-sm animate-pulse"
-                                style={{ 
+                                style={{
                                   height: `${height * 4}px`,
                                   animationDelay: `${i * 0.1}s`,
-                                  animationDuration: '0.8s'
+                                  animationDuration: "0.8s",
                                 }}
                               ></div>
                             ))}
                           </div>
                         )}
                       </div>
-                      
+
                       {/* Удаленные пользователи */}
-                      {voiceUsers.map(user => {
+                      {voiceUsers.map((user) => {
                         const normalizedId = normalizeUUID(user.id);
                         const isSpeaking = activeSpeakers[normalizedId];
-                        
+
                         return (
-                          <div 
-                            key={normalizedId} 
+                          <div
+                            key={normalizedId}
                             className="bg-gray-800 rounded-lg p-4 flex flex-col items-center relative"
                           >
                             {isSpeaking && (
                               <div className="absolute top-0 right-0 w-4 h-4 bg-green-500 rounded-full animate-pulse"></div>
                             )}
                             <div className="w-16 h-16 bg-indigo-500 rounded-full flex items-center justify-center mb-2">
-                              {user.username?.charAt(0) || 'U'}
+                              {user.username?.charAt(0) || "U"}
                             </div>
-                            <div className="font-bold">{user.username || 'Unknown'}</div>
+                            <div className="font-bold">
+                              {user.username || "Unknown"}
+                            </div>
                             <div className="text-xs text-gray-400">
-                              {isSpeaking ? 'Speaking...' : 'Silent'}
+                              {isSpeaking ? "Speaking..." : "Silent"}
                             </div>
-                            
+
                             {/* Анимация волны для активного говорящего */}
                             {isSpeaking && (
                               <div className="absolute -bottom-2 w-full flex justify-center space-x-1">
                                 {[1, 2, 3, 4, 3, 2].map((height, i) => (
-                                  <div 
-                                    key={i} 
+                                  <div
+                                    key={i}
                                     className="w-1 bg-green-400 rounded-sm animate-pulse"
-                                    style={{ 
+                                    style={{
                                       height: `${height * 4}px`,
                                       animationDelay: `${i * 0.1}s`,
-                                      animationDuration: '0.8s'
+                                      animationDuration: "0.8s",
                                     }}
                                   ></div>
                                 ))}
@@ -1314,7 +1401,7 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                         );
                       })}
                     </div>
-                    
+
                     <button
                       onClick={leaveVoiceChannel}
                       className="mt-8 px-6 py-3 bg-red-600 rounded hover:bg-red-500"
@@ -1338,15 +1425,21 @@ const joinVoiceChannel = useCallback((channelId: string) => {
         <div className="text-gray-400 text-sm font-semibold mb-2">
           ONLINE — {members.length}
         </div>
-        
+
         {members.map((member, index) => {
           const normalizedId = normalizeUUID(member.id);
           const key = normalizedId || `member-${index}`;
-          const displayName = member.username || `User-${normalizedId.slice(0,4)}`;
-          const isInVoice = voiceUsers.some(u => normalizeUUID(u.id) === normalizedId);
+          const displayName =
+            member.username || `User-${normalizedId.slice(0, 4)}`;
+          const isInVoice = voiceUsers.some(
+            (u) => normalizeUUID(u.id) === normalizedId,
+          );
 
           return (
-            <div key={key} className="flex items-center p-2 rounded hover:bg-gray-700">
+            <div
+              key={key}
+              className="flex items-center p-2 rounded hover:bg-gray-700"
+            >
               <div className="relative">
                 <div className="w-8 h-8 bg-indigo-500 rounded-full flex items-center justify-center mr-2">
                   {displayName.charAt(0)}
@@ -1358,7 +1451,9 @@ const joinVoiceChannel = useCallback((channelId: string) => {
               </div>
               <div>
                 <div className="font-medium">{displayName}</div>
-                <div className="text-xs text-gray-400">#{normalizedId.slice(0,4)}</div>
+                <div className="text-xs text-gray-400">
+                  #{normalizedId.slice(0, 4)}
+                </div>
               </div>
             </div>
           );
@@ -1369,18 +1464,20 @@ const joinVoiceChannel = useCallback((channelId: string) => {
       {voiceNotifications.length > 0 && (
         <div className="fixed bottom-4 right-4 space-y-2">
           {voiceNotifications.map((notif, index) => {
-            const user = userMap[notif.userId] || { username: `User-${notif.userId.slice(0,4)}` };
+            const user = userMap[notif.userId] || {
+              username: `User-${notif.userId.slice(0, 4)}`,
+            };
             return (
-              <div 
-                key={index} 
+              <div
+                key={index}
                 className="bg-gray-800 p-3 rounded-lg shadow-lg flex items-center"
               >
                 <div className="mr-2">
-                  {notif.action === 'join' ? '🎤' : '🚪'}
+                  {notif.action === "join" ? "🎤" : "🚪"}
                 </div>
                 <div>
-                  <span className="font-bold">{user.username}</span> 
-                  {notif.action === 'join' ? ' joined voice' : ' left voice'}
+                  <span className="font-bold">{user.username}</span>
+                  {notif.action === "join" ? " joined voice" : " left voice"}
                 </div>
               </div>
             );
@@ -1407,12 +1504,14 @@ const joinVoiceChannel = useCallback((channelId: string) => {
               placeholder="Enter User ID"
               className="w-full p-2 mb-4 bg-gray-700 rounded text-white"
             />
-            {inviteError && <p className="text-red-500 text-sm mb-4">{inviteError}</p>}
+            {inviteError && (
+              <p className="text-red-500 text-sm mb-4">{inviteError}</p>
+            )}
             <div className="flex justify-end space-x-2">
               <button
                 onClick={() => {
                   setIsInviteModalOpen(false);
-                  setInviteError('');
+                  setInviteError("");
                 }}
                 className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-500"
               >
@@ -1434,7 +1533,9 @@ const joinVoiceChannel = useCallback((channelId: string) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-gray-800 p-6 rounded-lg w-96">
             <h3 className="text-lg font-bold mb-4">Invite Link Created</h3>
-            <p className="mb-4">Share this link to invite others to the server:</p>
+            <p className="mb-4">
+              Share this link to invite others to the server:
+            </p>
             <div className="flex items-center mb-4">
               <input
                 type="text"
@@ -1447,8 +1548,18 @@ const joinVoiceChannel = useCallback((channelId: string) => {
                 className="p-2 bg-gray-600 rounded hover:bg-gray-500"
                 title="Copy to clipboard"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                  />
                 </svg>
               </button>
             </div>

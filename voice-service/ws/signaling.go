@@ -87,6 +87,12 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 		joinMsg, _ := json.Marshal(Signal{Type: "join", Room: room, Sender: userID})
 		rdb.Publish(ctx, room, joinMsg)
 
+		// Рассылаем обновленный список участников
+		updatedMembers, _ := rdb.SMembers(ctx, roomKey).Result()
+		payload, _ := json.Marshal(gin.H{"users": updatedMembers})
+		userListMsg, _ := json.Marshal(Signal{Type: "user-list", Room: room, Payload: payload})
+		rdb.Publish(ctx, room, userListMsg)
+
 		pubsub := rdb.Subscribe(ctx, room)
 		defer pubsub.Close()
 
@@ -124,6 +130,12 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 		rdb.SRem(ctx, roomKey, userID)
 		leaveMsg, _ := json.Marshal(Signal{Type: "leave", Room: room, Sender: userID})
 		rdb.Publish(ctx, room, leaveMsg)
+
+		// Рассылаем обновленный список участников
+		remainingMembers, _ := rdb.SMembers(ctx, roomKey).Result()
+		payloadLeave, _ := json.Marshal(gin.H{"users": remainingMembers})
+		userListMsgLeave, _ := json.Marshal(Signal{Type: "user-list", Room: room, Payload: payloadLeave})
+		rdb.Publish(ctx, room, userListMsgLeave)
 	}
 }
 
