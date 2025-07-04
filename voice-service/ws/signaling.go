@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -17,6 +18,12 @@ import (
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
+
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 60 * time.Second
+	pingPeriod = pongWait * 9 / 10
+)
 
 // Вынесен в глобальную область видимости
 type AuthMessage struct {
@@ -45,6 +52,24 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 			log.Println("ws upgrade:", err)
 			return
 		}
+
+		conn.SetReadLimit(512)
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetPongHandler(func(string) error {
+			conn.SetReadDeadline(time.Now().Add(pongWait))
+			return nil
+		})
+
+		ticker := time.NewTicker(pingPeriod)
+		defer ticker.Stop()
+		go func() {
+			for range ticker.C {
+				conn.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
+		}()
 		defer func() {
 			log.Printf("connection closed user=%s room=%s", userID, room)
 			conn.Close()
@@ -129,6 +154,7 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 				log.Println("ws read:", err)
 				break
 			}
+			conn.SetReadDeadline(time.Now().Add(pongWait))
 
 			var sig Signal
 			if err := json.Unmarshal(b, &sig); err != nil {
