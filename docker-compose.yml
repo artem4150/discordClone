@@ -227,7 +227,7 @@ services:
     image: coturn/coturn:latest
     container_name: turn-server
     restart: unless-stopped
-    network_mode: host  # Важно для локальной разработки!
+    network_mode: host
     environment:
       - TURN_SECRET=${TURN_SECRET}
       - REALM=${REALM}
