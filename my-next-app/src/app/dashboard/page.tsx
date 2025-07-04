@@ -440,7 +440,8 @@ export default function DashboardPage() {
       voiceUsers.forEach((user) => {
         const userId = normalizeUUID(user.id);
         if (userId !== currentUserId) {
-          createPeerConnection(userId, stream);
+          const initiator = currentUserId < userId;
+          createPeerConnection(userId, stream, initiator);
         }
       });
     } catch (error) {
@@ -450,7 +451,11 @@ export default function DashboardPage() {
   };
 
   // Создание пирингового соединения
-  const createPeerConnection = (userId: string, stream?: MediaStream) => {
+  const createPeerConnection = (
+    userId: string,
+    stream?: MediaStream,
+    initiator: boolean = false,
+  ) => {
     const config: RTCConfiguration = {
       iceServers: [
         ...iceServers,
@@ -504,22 +509,24 @@ export default function DashboardPage() {
       }));
     };
 
-    // Создаем предложение (offer)
-    pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => {
-        const gw = voiceGatewayRef.current;
-        if (gw && pc.localDescription) {
-          gw.send({
-            type: "offer",
-            target: userId,
-            payload: { offer: pc.localDescription },
-          });
-        }
-      })
-      .catch((error) => {
-        console.error("Error creating offer:", error);
-      });
+    // Создаём предложение только если мы инициатор соединения
+    if (initiator) {
+      pc.createOffer()
+        .then((offer) => pc.setLocalDescription(offer))
+        .then(() => {
+          const gw = voiceGatewayRef.current;
+          if (gw && pc.localDescription) {
+            gw.send({
+              type: "offer",
+              target: userId,
+              payload: { offer: pc.localDescription },
+            });
+          }
+        })
+        .catch((error) => {
+          console.error("Error creating offer:", error);
+        });
+    }
 
     // Сохраняем соединение
     setPeerConnections((prev) => ({
@@ -534,10 +541,14 @@ export default function DashboardPage() {
   const handleSignal = (userId: string, data: any) => {
     let pc = peerConnections[userId];
     if (!pc) {
-      pc = createPeerConnection(userId);
+      pc = createPeerConnection(userId, undefined, false);
     }
 
     if (!pc) return;
+
+    if (pc.connectionState === "closed" || pc.signalingState === "closed") {
+      pc = createPeerConnection(userId, undefined, false);
+    }
 
     switch (data.type) {
       case "offer":
@@ -625,7 +636,8 @@ export default function DashboardPage() {
             if (localStream) {
               others.forEach((id) => {
                 if (!peerConnections[id]) {
-                  createPeerConnection(id, localStream);
+                  const initiator = currentUserId < id;
+                  createPeerConnection(id, localStream, initiator);
                 }
               });
             }
@@ -655,7 +667,8 @@ export default function DashboardPage() {
                 } as User,
               ]);
               if (localStream) {
-                createPeerConnection(peerId, localStream);
+                const initiator = currentUserId < peerId;
+                createPeerConnection(peerId, localStream, initiator);
               }
             }
             if (peerId && peerId !== currentUserId) {
