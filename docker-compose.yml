@@ -42,7 +42,8 @@ services:
         NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
         NEXT_PUBLIC_WS_URL: wss://api.${DOMAIN}
         TURN_DOMAIN: ${REALM}
-        TURN_SECRET: ${TURN_SECRET}
+        TURN_USERNAME: ${TURN_USERNAME}
+        TURN_PASSWORD: ${TURN_PASSWORD}
     image: myorg/frontend:latest
     depends_on:
       - kong
@@ -51,7 +52,8 @@ services:
       - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
       - NEXT_PUBLIC_WS_URL=wss://api.${DOMAIN}
       - TURN_DOMAIN=${REALM}
-      - TURN_SECRET=${TURN_SECRET}
+      - TURN_USERNAME=${TURN_USERNAME}
+      - TURN_PASSWORD=${TURN_PASSWORD}
     ports:
       - "3001:3001"       # <-- 3006:3000, чтобы не конфликтовать с другими сервисами
     networks:
@@ -231,13 +233,14 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - TURN_SECRET=${TURN_SECRET}
+      - TURN_USERNAME=${TURN_USERNAME}
+      - TURN_PASSWORD=${TURN_PASSWORD}
       - REALM=${REALM}
       - EXTERNAL_IP=${EXTERNAL_IP}
     command: >
       --fingerprint
       --lt-cred-mech
-      --use-auth-secret
+      --user=${TURN_USERNAME}:${TURN_PASSWORD}
       --realm=${REALM}
       --external-ip=${EXTERNAL_IP}
       --min-port=49152
