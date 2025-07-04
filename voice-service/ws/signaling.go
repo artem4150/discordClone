@@ -36,12 +36,19 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 		token := c.Query("token")
 		room := c.Query("channelId") // Используем channelId вместо room
 
+		var userID string
+
+		log.Printf("new ws request from %s to room %s", c.ClientIP(), room)
+
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			log.Println("ws upgrade:", err)
 			return
 		}
-		defer conn.Close()
+		defer func() {
+			log.Printf("connection closed user=%s room=%s", userID, room)
+			conn.Close()
+		}()
 
 		if token == "" {
 			_, msg, err := conn.ReadMessage()
@@ -58,11 +65,14 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 			token = auth.Token
 		}
 
-		userID, err := validateToken(token)
+		userID, err = validateToken(token)
 		if err != nil {
+			log.Println("token validation failed:", err)
 			conn.WriteJSON(gin.H{"error": "invalid token"})
 			return
 		}
+
+		log.Printf("client %s authenticated as %s", c.ClientIP(), userID)
 
 		ctx := context.Background()
 		roomKey := "voice_room_users:" + room
@@ -72,6 +82,7 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 			log.Println("redis sadd:", err)
 		}
 		members, _ := rdb.SMembers(ctx, roomKey).Result()
+		log.Printf("room %s members after join: %v", room, members)
 
 		conn.WriteJSON(gin.H{
 			"type":    "auth-response",
@@ -85,20 +96,28 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 
 		// Уведомляем остальных о подключении
 		joinMsg, _ := json.Marshal(Signal{Type: "join", Room: room, Sender: userID})
-		rdb.Publish(ctx, room, joinMsg)
+		if err := rdb.Publish(ctx, room, joinMsg).Err(); err != nil {
+			log.Println("redis publish join:", err)
+		}
 
 		// Рассылаем обновленный список участников
 		updatedMembers, _ := rdb.SMembers(ctx, roomKey).Result()
 		payload, _ := json.Marshal(gin.H{"users": updatedMembers})
 		userListMsg, _ := json.Marshal(Signal{Type: "user-list", Room: room, Payload: payload})
-		rdb.Publish(ctx, room, userListMsg)
+		if err := rdb.Publish(ctx, room, userListMsg).Err(); err != nil {
+			log.Println("redis publish user-list:", err)
+		}
 
 		pubsub := rdb.Subscribe(ctx, room)
-		defer pubsub.Close()
+		defer func() {
+			log.Printf("closing pubsub for user=%s room=%s", userID, room)
+			pubsub.Close()
+		}()
 
 		go func() {
 			for msg := range pubsub.Channel() {
 				if err := conn.WriteMessage(websocket.TextMessage, []byte(msg.Payload)); err != nil {
+					log.Println("ws write:", err)
 					return
 				}
 			}
@@ -117,25 +136,34 @@ func ServeSignaling(rdb *redis.Client) gin.HandlerFunc {
 				continue
 			}
 
+			log.Printf("received signal from %s: %s", userID, sig.Type)
+
 			sig.Sender = userID
 			if sig.Room == "" {
 				sig.Room = room
 			}
 
 			out, _ := json.Marshal(sig)
-			rdb.Publish(ctx, sig.Room, out)
+			if err := rdb.Publish(ctx, sig.Room, out).Err(); err != nil {
+				log.Println("redis publish signal:", err)
+			}
 		}
 
 		// При закрытии соединения удаляем пользователя из комнаты
 		rdb.SRem(ctx, roomKey, userID)
 		leaveMsg, _ := json.Marshal(Signal{Type: "leave", Room: room, Sender: userID})
-		rdb.Publish(ctx, room, leaveMsg)
+		if err := rdb.Publish(ctx, room, leaveMsg).Err(); err != nil {
+			log.Println("redis publish leave:", err)
+		}
 
 		// Рассылаем обновленный список участников
 		remainingMembers, _ := rdb.SMembers(ctx, roomKey).Result()
+		log.Printf("room %s members after leave: %v", room, remainingMembers)
 		payloadLeave, _ := json.Marshal(gin.H{"users": remainingMembers})
 		userListMsgLeave, _ := json.Marshal(Signal{Type: "user-list", Room: room, Payload: payloadLeave})
-		rdb.Publish(ctx, room, userListMsgLeave)
+		if err := rdb.Publish(ctx, room, userListMsgLeave).Err(); err != nil {
+			log.Println("redis publish updated list:", err)
+		}
 	}
 }
 
