@@ -42,6 +42,7 @@ services:
         NEXT_PUBLIC_API_URL: https://api.${DOMAIN}
         NEXT_PUBLIC_WS_URL: wss://api.${DOMAIN}
         TURN_DOMAIN: ${REALM}
+        TURN_SECRET: ${TURN_SECRET}
     image: myorg/frontend:latest
     depends_on:
       - kong
@@ -50,6 +51,7 @@ services:
       - NEXT_PUBLIC_API_URL=https://api.${DOMAIN}
       - NEXT_PUBLIC_WS_URL=wss://api.${DOMAIN}
       - TURN_DOMAIN=${REALM}
+      - TURN_SECRET=${TURN_SECRET}
     ports:
       - "3001:3001"       # <-- 3006:3000, чтобы не конфликтовать с другими сервисами
     networks:
